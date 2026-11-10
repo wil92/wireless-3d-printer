@@ -1,5 +1,9 @@
 # Remote SD Card Access over Network
 
+> Note: this project is in pause, the SPI card reader connection is not compatible with other devices, and for full
+> switching between Arduino and 3D printer, SDMMC is required. ESP32-C3 is not compatible with SDMMC, so this project is
+> on hold until we get ESP32-S3 board that is compatible with SDMMC.
+
 This project provides a simple way to access an SD card connected to a microcontroller over a network. It allows you to
 #read and write files on the SD card remotely using standard network protocols.
 
@@ -16,7 +20,7 @@ device, like 3D printers, IoT devices, or embedded systems.
 ## Requirements
 
 - Python 3.x
-  - htmlmin (library for minifying HTML)
+    - htmlmin (library for minifying HTML)
 - PlatformIO
 - ESP32-C3 Super mini or compatible microcontroller
 
@@ -44,19 +48,19 @@ pio test -e tests -vvv
 
 ## ESP32-C3 Super mini Pinout
 
-| **Pin Name** | **GPIO** | **Function**                           |
-|--------------|----------|----------------------------------------|
-| 0            | GPIO0    | ADC1, PWM                             |
-| 1            | GPIO1    | ADC1, PWM                             |
-| 2            | GPIO2    | ADC1, Strapping Pin (Boot Mode)        |
-| 3            | GPIO3    | ADC1, PWM                             |
-| 4            | GPIO4    | JTAG, ADC1                            |
-| 5            | GPIO5    | JTAG                                  |
-| 8            | GPIO8    | Status LED (inverted), Strapping Pin  |
-| 9            | GPIO9    | BOOT Button, Strapping Pin            |
-| 10           | GPIO10   | PWM                                   |
-| 20           | GPIO20   | General-purpose I/O                   |
-| 21           | GPIO21   | General-purpose I/O                   |
+| **Pin Name** | **GPIO** | **Function**                         |
+|--------------|----------|--------------------------------------|
+| 0            | GPIO0    | ADC1, PWM                            |
+| 1            | GPIO1    | ADC1, PWM                            |
+| 2            | GPIO2    | ADC1, Strapping Pin (Boot Mode)      |
+| 3            | GPIO3    | ADC1, PWM                            |
+| 4            | GPIO4    | JTAG, ADC1                           |
+| 5            | GPIO5    | JTAG                                 |
+| 8            | GPIO8    | Status LED (inverted), Strapping Pin |
+| 9            | GPIO9    | BOOT Button, Strapping Pin           |
+| 10           | GPIO10   | PWM                                  |
+| 20           | GPIO20   | General-purpose I/O                  |
+| 21           | GPIO21   | General-purpose I/O                  |
 
 ## Important Links
 
