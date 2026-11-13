@@ -21,7 +21,11 @@ automatically mark the device as configured or bypass the setup access point.
 Saved EEPROM credentials replace them when a configured device starts.
 
 The device connects directly in Wi-Fi station mode using the saved credentials
-and enables automatic reconnection. During initial connection it logs status
+and enables automatic reconnection. It sends `remote-sd` as its DHCP hostname;
+routers may cache an older name or display clients differently. Multiple
+devices use the same DHCP hostname. This is separate from the setup display
+name and the unique mDNS hostname described in [network discovery](discovery.md).
+During initial connection it logs status
 changes, then prints its local IP address when connected. Serial logs use 9600
 baud and do not print the saved credentials. If connection setup fails, the
 web server does not start; the reset button remains available.
@@ -69,12 +73,19 @@ every firmware compilation, including the framework and libraries. Change
 them only if appropriate for the connected board and its USB setup.
 
 After adding, changing, or removing `usb_config.h`, or changing the defaults
-in `../src/main.h`, run `pio run -e esp32-c3-devkitm-1 -t clean` before building.
+in `../src/main.h`, run `pio run -e esp32dev -t clean` before building.
 PlatformIO may otherwise reuse objects compiled with the previous settings.
 
 ## Building and testing
 
-Build the configured board with `pio run -e esp32-c3-devkitm-1`. Run host tests
+The `esp32dev` environment uses the ESP32-S3 DevKitC board profile for the
+SuperMini, with a 4 MB flash size and partition layout and no PSRAM enabled.
+Confirm the actual board's flash capacity and mode before flashing; board
+variants may require different PlatformIO settings. The upload port is
+auto-detected unless specified with `--upload-port`. See
+[hardware wiring](hardware.md) for the pin assignments and SD switching.
+
+Build the configured board with `pio run -e esp32dev`. Run host tests
 from the project root with `pio test -e tests`; the upload fixture is resolved
 relative to that directory. Run the configuration-header tests with
 `python3 -m unittest discover -s test -p 'test_configuration.py'`. Host tests

@@ -52,7 +52,7 @@ public:
 
     virtual void closeFile() {}
 
-    virtual void begin() {}
+    virtual bool begin() { return true; }
 
     virtual void end() {}
 };

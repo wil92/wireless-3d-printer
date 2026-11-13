@@ -27,6 +27,10 @@ bool NetworkManager::connectToNetwork(
         return false;
     }
 
+    if (!WiFi.setHostname("remote-sd")) {
+        Serial.println("Cannot connect: failed to set Wi-Fi hostname");
+        return false;
+    }
     WiFi.persistent(false);
     if (!WiFi.mode(WIFI_STA)) {
         Serial.println("Cannot connect: failed to enable Wi-Fi station mode");

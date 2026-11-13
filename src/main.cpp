@@ -2,14 +2,12 @@
 
 #include <Arduino.h>
 
+#include "../include/hardware_pins.h"
 #include "../lib/flash/flash_manager.h"
 #include "../lib/network/access_point_config.h"
 #include "../lib/network/network_manager.h"
 #include "../lib/reset/reset_button.h"
 #include "../lib/webserver/web_server_manager.h"
-
-#define RESET_CONFIG_PIN GPIO_NUM_20
-#define SWITCH_SD_PIN GPIO_NUM_21
 
 NetworkManager networkManager;
 FlashManager flashManager;
@@ -20,7 +18,7 @@ bool webServerReady = false;
 
 void resetConfigWhenButtonPress() {
     resetButton.check(
-        digitalRead(RESET_CONFIG_PIN) == LOW,
+        digitalRead(HardwarePins::resetConfig) == LOW,
         []() {
             Serial.println("Reset configuration requested");
             if (!flashManager.resetSetup()) {
@@ -35,7 +33,9 @@ void resetConfigWhenButtonPress() {
         });
 }
 
-void enableSD(bool status) { digitalWrite(SWITCH_SD_PIN, status ? LOW : HIGH); }
+void enableSD(bool status) {
+    digitalWrite(HardwarePins::switchSd, status ? LOW : HIGH);
+}
 
 void setup() {
     Serial.begin(9600);
@@ -44,8 +44,9 @@ void setup() {
 
     flashManager.loadSetup();
 
-    pinMode(RESET_CONFIG_PIN, INPUT);
-    pinMode(SWITCH_SD_PIN, OUTPUT);
+    pinMode(HardwarePins::resetConfig, INPUT_PULLUP);
+    digitalWrite(HardwarePins::switchSd, HIGH);
+    pinMode(HardwarePins::switchSd, OUTPUT);
 
     resetConfigWhenButtonPress();
 

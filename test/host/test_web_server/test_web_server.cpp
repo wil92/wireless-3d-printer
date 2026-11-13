@@ -24,6 +24,7 @@ public:
     size_t closeCalls = 0;
     size_t endCalls = 0;
     size_t listCalls = 0;
+    bool beginResult = true;
     std::vector<FileInfo> files;
 
     std::vector<FileInfo> listFiles(bool) override {
@@ -35,7 +36,7 @@ public:
         data.insert(data.end(), chunk, chunk + size);
     }
 
-    void begin() override { ++beginCalls; }
+    bool begin() override { ++beginCalls; return beginResult; }
 
     void removeFile(const String &, bool) override { ++removeCalls; }
 
@@ -619,6 +620,85 @@ void testUploadFileCopiesFixtureExactly() {
                      std::string::npos);
 }
 
+void testUploadReportsMountFailureWithoutModifyingCard() {
+    WiFiClientTmp client;
+    client.buildUploadRequest(std::vector<byte>(4, 'x'));
+    client.readStringUntil('\n');
+    WebServerManager manager;
+    SDCardManagerTmp sd;
+    sd.beginResult = false;
+    manager.sdCardManager = &sd;
+
+    manager.handleFileUpload(&client);
+
+    TEST_ASSERT_EQUAL(1, sd.beginCalls);
+    TEST_ASSERT_EQUAL(0, sd.removeCalls);
+    TEST_ASSERT_EQUAL(0, sd.openCalls);
+    TEST_ASSERT_EQUAL(0, sd.endCalls);
+    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
+                     std::string::npos);
+}
+
+void testMountFailureReleasesSwitchWithoutWaitingForUploadBody() {
+    class WaitingClient : public WiFiClientTmp {
+    public:
+        bool connected() override { return true; }
+    } client;
+    client.buildUploadRequest(std::vector<byte>());
+    client.data.resize(client.data.size() - client.fileBytes.size() -
+                       std::strlen("\r\n------WebKitFormBoundarypCbNHDfIecaHIigU--\r\n"));
+    WebServerManager manager;
+    SDCardManagerTmp sd;
+    sd.beginResult = false;
+    manager.sdCardManager = &sd;
+    std::vector<bool> states;
+    manager.sf = [&](bool enabled) { states.push_back(enabled); };
+    client.readStringUntil('\n');
+
+    manager.checkEndpoints(&client, "POST /upload HTTP/1.1");
+
+    TEST_ASSERT_EQUAL(2, states.size());
+    TEST_ASSERT_TRUE(states[0]);
+    TEST_ASSERT_FALSE(states[1]);
+    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
+                     std::string::npos);
+}
+
+void testDeleteMountFailurePreservesCacheAndReportsError() {
+    WiFiClientTmp client;
+    client.data = {'\r', '\n'};
+    WebServerManager manager;
+    SDCardManagerTmp sd;
+    sd.beginResult = false;
+    manager.sdCardManager = &sd;
+    manager.filesInSD = {{"existing.gcode", 42}};
+
+    manager.checkEndpoints(&client, "DELETE /?file=existing.gcode HTTP/1.1");
+
+    TEST_ASSERT_EQUAL(1, sd.beginCalls);
+    TEST_ASSERT_EQUAL(0, sd.removeCalls);
+    TEST_ASSERT_EQUAL(0, sd.listCalls);
+    TEST_ASSERT_EQUAL(1, manager.filesInSD.size());
+    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
+                     std::string::npos);
+}
+
+void testDeleteMountsOnceAndUnmounts() {
+    WiFiClientTmp client;
+    client.data = {'\r', '\n'};
+    WebServerManager manager;
+    SDCardManagerTmp sd;
+    manager.sdCardManager = &sd;
+
+    manager.checkEndpoints(&client, "DELETE /?file=existing.gcode HTTP/1.1");
+
+    TEST_ASSERT_EQUAL(1, sd.beginCalls);
+    TEST_ASSERT_EQUAL(1, sd.removeCalls);
+    TEST_ASSERT_EQUAL(1, sd.listCalls);
+    TEST_ASSERT_EQUAL(1, sd.endCalls);
+    TEST_ASSERT_TRUE(client.response.find("204 No Content") != std::string::npos);
+}
+
 void testUploadFilePreservesBinaryDataAcrossBufferBoundaries() {
     std::vector<byte> payload(1400);
     for (size_t index = 0; index < payload.size(); ++index) {
@@ -910,6 +990,10 @@ int runUnitTests() {
     RUN_TEST(testUploadPollsWhileWaitingForHeaders);
     RUN_TEST(testUploadPollsWhileWaitingForFileData);
     RUN_TEST(testUploadFileCopiesFixtureExactly);
+    RUN_TEST(testUploadReportsMountFailureWithoutModifyingCard);
+    RUN_TEST(testMountFailureReleasesSwitchWithoutWaitingForUploadBody);
+    RUN_TEST(testDeleteMountFailurePreservesCacheAndReportsError);
+    RUN_TEST(testDeleteMountsOnceAndUnmounts);
     RUN_TEST(testUploadFilePreservesBinaryDataAcrossBufferBoundaries);
     RUN_TEST(testUploadFileAcceptsEmptyFile);
     RUN_TEST(testUploadRejectsMissingRequiredHeader);

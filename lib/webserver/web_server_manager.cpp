@@ -294,10 +294,16 @@ void WebServerManager::handleFileDeletion(WiFiClient *client,
     const int index = static_cast<int>(String("DELETE /").length()) + 1;
     std::map<String, String> params = parseQueryParameters(message, index);
     Serial.println("->" + params["file"]);
-    if (params.find("file") != params.end()) {
-        sdCardManager->removeFile(params["file"], true);
+    if (!sdCardManager->begin()) {
+        consumeIncomingData(client);
+        sendTextResponse(client, 500, "Could not mount SD card.");
+        return;
     }
-    filesInSD = sdCardManager->listFiles(true);
+    if (params.find("file") != params.end()) {
+        sdCardManager->removeFile(params["file"], false);
+    }
+    filesInSD = sdCardManager->listFiles(false);
+    sdCardManager->end();
     consumeIncomingData(client);
     client->print(prepareHeaders(204));
 }
@@ -352,7 +358,10 @@ void WebServerManager::handleFileUpload(WiFiClient *client) {
         client->print(prepareHeaders(400));
         return;
     }
-    sdCardManager->begin();
+    if (!sdCardManager->begin()) {
+        sendTextResponse(client, 500, "Could not mount SD card.");
+        return;
+    }
     sdCardManager->removeFile(fileName, false);
 
     String buffer;

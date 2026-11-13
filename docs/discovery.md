@@ -8,6 +8,9 @@ hexadecimal without separators, for example `remote-sd-001122334455.local`.
 The hostname and device ID are stable as long as the Wi-Fi MAC address remains
 the same; they are not secrets.
 
+The DHCP hostname sent to the router is the fixed name `remote-sd`; it is
+independent of this unique mDNS hostname and the configurable display name.
+
 A Cura plugin or other client can browse `_remote-sd._tcp.local.`, resolve
 each service's SRV target, port and addresses, and request `/api/device` from
 that address and port. Use the `id` to deduplicate devices across addresses

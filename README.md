@@ -1,11 +1,7 @@
 # Remote SD Card Access over Network
 
-> Note: this project is in pause, the SPI card reader connection is not compatible with other devices, and for full
-> switching between Arduino and 3D printer, SDMMC is required. ESP32-C3 is not compatible with SDMMC, so this project is
-> on hold until we get ESP32-S3 board that is compatible with SDMMC.
-
-This project provides a simple way to access an SD card connected to a microcontroller over a network. It allows you to
-#read and write files on the SD card remotely using standard network protocols.
+This project provides network access to a microSD card connected to an
+ESP32-S3 over 4-bit SDMMC.
 
 This project is useful for applications where you need to manage files on an SD card without physically accessing the
 device, like 3D printers, IoT devices, or embedded systems.
@@ -22,7 +18,8 @@ device, like 3D printers, IoT devices, or embedded systems.
 - Python 3.x
     - htmlmin (library for minifying HTML)
 - PlatformIO
-- ESP32-C3 Super mini or compatible microcontroller
+- ESP32-S3 SuperMini with compatible 3.3 V microSD hardware
+- External SD bus switching hardware for sharing the card with a printer
 
 ## Installation
 
@@ -40,28 +37,9 @@ pio test -e tests -vvv
 ## Documentation
 
 - [Build configuration](docs/configuration.md)
+- [ESP32-S3 wiring and SDMMC](docs/hardware.md)
 - [Configuration reset](docs/configuration-reset.md)
 - [Network discovery and device information API](docs/discovery.md)
 - [File management and file list API](docs/file-management.md)
 - [Cura plugin installation and usage](docs/cura-plugin.md)
 - [Coding rules](docs/coding-rules.md)
-
-## ESP32-C3 Super mini Pinout
-
-| **Pin Name** | **GPIO** | **Function**                         |
-|--------------|----------|--------------------------------------|
-| 0            | GPIO0    | ADC1, PWM                            |
-| 1            | GPIO1    | ADC1, PWM                            |
-| 2            | GPIO2    | ADC1, Strapping Pin (Boot Mode)      |
-| 3            | GPIO3    | ADC1, PWM                            |
-| 4            | GPIO4    | JTAG, ADC1                           |
-| 5            | GPIO5    | JTAG                                 |
-| 8            | GPIO8    | Status LED (inverted), Strapping Pin |
-| 9            | GPIO9    | BOOT Button, Strapping Pin           |
-| 10           | GPIO10   | PWM                                  |
-| 20           | GPIO20   | General-purpose I/O                  |
-| 21           | GPIO21   | General-purpose I/O                  |
-
-## Important Links
-
-- [ESP32-C3 Super mini github](https://github.com/sidharthmohannair/Tutorial-ESP32-C3-Super-Mini)

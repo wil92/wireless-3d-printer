@@ -54,6 +54,8 @@ class NetworkPollingTest(unittest.TestCase):
                     int attempts = 0;
                     int localIpCalls = 0;
                     bool persistentValue = true;
+                    bool hostnameResult = true;
+                    String hostname;
                     bool modeResult = true;
                     bool reconnectResult = true;
                     bool configResult = true;
@@ -71,6 +73,11 @@ class NetworkPollingTest(unittest.TestCase):
                     int scanResult = -1;
                     int scanState = -2;
                     int scanDeleteCalls = 0;
+                    bool setHostname(const char *name) {
+                        calls.push_back("hostname");
+                        hostname = name;
+                        return hostnameResult;
+                    }
                     void persistent(bool enabled) {
                         calls.push_back("persistent");
                         persistentValue = enabled;
@@ -158,10 +165,11 @@ class NetworkPollingTest(unittest.TestCase):
                                                     }));
                     assert(polls == 20 && delayCalls == 20);
                     assert(!WiFi.persistentValue && WiFi.modeValue == WIFI_STA);
+                    assert(WiFi.hostname == "remote-sd");
                     assert(WiFi.beginCalls == 1 && WiFi.statusCalls == 3);
                     assert(WiFi.ssid == "ssid" && WiFi.password == "password");
                     assert(WiFi.calls == std::vector<String>({
-                        "persistent", "mode", "auto-reconnect", "begin",
+                        "hostname", "persistent", "mode", "auto-reconnect", "begin",
                         "status", "status", "status"
                     }));
                     assert(WiFi.localIpCalls == 1);
@@ -176,6 +184,13 @@ class NetworkPollingTest(unittest.TestCase):
                     assert(Serial.lines.back() == "Cannot connect: Wi-Fi configuration is invalid");
                     assert(!manager.connectToNetwork(nullptr, "password"));
                     assert(!manager.connectToNetwork("ssid", nullptr));
+
+                    WiFi = FakeWiFi();
+                    WiFi.hostnameResult = false;
+                    assert(!manager.connectToNetwork("ssid", "password"));
+                    assert(WiFi.calls == std::vector<String>({"hostname"}));
+                    assert(WiFi.modeCalls == 0 && WiFi.beginCalls == 0);
+                    assert(Serial.lines.back() == "Cannot connect: failed to set Wi-Fi hostname");
 
                     WiFi = FakeWiFi();
                     WiFi.modeResult = false;
