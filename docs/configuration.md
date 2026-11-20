@@ -83,11 +83,10 @@ SuperMini, with a 4 MB flash size and partition layout and no PSRAM enabled.
 Confirm the actual board's flash capacity and mode before flashing; board
 variants may require different PlatformIO settings. The upload port is
 auto-detected unless specified with `--upload-port`. See
-[hardware wiring](hardware.md) for the pin assignments and SD switching.
+[hardware wiring](hardware.md) for the pin assignments.
 
 Build the configured board with `pio run -e esp32dev`. Run host tests
-from the project root with `pio test -e tests`; the upload fixture is resolved
-relative to that directory. Run the configuration-header tests with
+from the project root with `pio test -e tests`. Run the configuration-header tests with
 `python3 -m unittest discover -s test -p 'test_configuration.py'`. Host tests
 do not upload firmware.
 Run `python3 build_views.py --check` and `node test/host/frontend_test.js`

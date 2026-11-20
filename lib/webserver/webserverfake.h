@@ -3,9 +3,6 @@
 #include <Arduino.h>
 
 #include "../flash/flash_manager.h"
-#include "../sdcard/file_info.h"
-
-#include <vector>
 
 namespace webserverfake {
 class WiFiClient {
@@ -37,23 +34,4 @@ public:
     WiFiClient accept() { return WiFiClient(); }
 };
 
-class SDCardManager {
-public:
-    virtual std::vector<FileInfo> listFiles(bool beginConnectionToSD) {
-        return std::vector<FileInfo>();
-    }
-
-    virtual void removeFile(const String &fileName, bool beginConnectionToSD) {}
-
-    virtual void appendFile(const String &fileName, const byte *chunk,
-                            size_t size) {}
-
-    virtual void openFile(const String &fileName) {}
-
-    virtual void closeFile() {}
-
-    virtual bool begin() { return true; }
-
-    virtual void end() {}
-};
 } // namespace webserverfake

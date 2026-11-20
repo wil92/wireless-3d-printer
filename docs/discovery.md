@@ -42,9 +42,8 @@ curl http://remote-sd-001122334455.local/api/device
 
 `type` identifies this project, `id` identifies the device, `name` is the
 display label saved during setup (default `Remote SD`), and `api_version` is
-the integer version of this response contract. The endpoint does not access
-the SD card or return Wi-Fi
-credentials. In setup mode it returns HTTP 404. If mDNS initialization or
+the integer version of this response contract. The endpoint does not return
+Wi-Fi credentials. In setup mode it returns HTTP 404. If mDNS initialization or
 service registration fails, the serial log reports the failure and the HTTP
 server remains available by IP address.
 

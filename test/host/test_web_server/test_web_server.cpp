@@ -1,7 +1,6 @@
 #include <ArduinoFake.h>
 #include <EEPROM.h>
 #include <cstring>
-#include <fstream>
 #include <map>
 #include <string>
 #include <unity.h>
@@ -15,42 +14,9 @@ using namespace fakeit;
 uint8_t eepromData[CONFIG_STORAGE_SIZE];
 unsigned long fakeMillis;
 
-class SDCardManagerTmp : public SDCardManager {
-public:
-    std::vector<byte> data;
-    size_t beginCalls = 0;
-    size_t removeCalls = 0;
-    size_t openCalls = 0;
-    size_t closeCalls = 0;
-    size_t endCalls = 0;
-    size_t listCalls = 0;
-    bool beginResult = true;
-    std::vector<FileInfo> files;
-
-    std::vector<FileInfo> listFiles(bool) override {
-        ++listCalls;
-        return files;
-    }
-
-    void appendFile(const String &, const byte *chunk, size_t size) override {
-        data.insert(data.end(), chunk, chunk + size);
-    }
-
-    bool begin() override { ++beginCalls; return beginResult; }
-
-    void removeFile(const String &, bool) override { ++removeCalls; }
-
-    void openFile(const String &) override { ++openCalls; }
-
-    void closeFile() override { ++closeCalls; }
-
-    void end() override { ++endCalls; }
-};
-
 class WiFiClientTmp : public webserverfake::WiFiClient {
 public:
     std::vector<byte> data;
-    std::vector<byte> fileBytes;
     size_t index = 0;
     std::string response;
 
@@ -79,65 +45,6 @@ public:
 
     void print(String value) override { response += value.c_str(); }
 
-    void buildUploadRequest(const std::vector<byte> &payload,
-                            bool includeContentLength = true,
-                            bool includeContentType = true,
-                            bool includeFilename = true,
-                            const char *initialBoundary =
-                                "------WebKitFormBoundarypCbNHDfIecaHIigU",
-                            const char *fileName = "test.bin",
-                            bool includeBoundaryParameter = true) {
-        std::string multipartHeaders = initialBoundary;
-        multipartHeaders += "\r\n";
-        if (includeFilename) {
-            multipartHeaders +=
-                "Content-Disposition: form-data; name=\"file\"; "
-                "filename=\"";
-            multipartHeaders += fileName;
-            multipartHeaders += "\"\r\n";
-        } else {
-            multipartHeaders +=
-                "Content-Disposition: form-data; name=\"file\"\r\n";
-        }
-        multipartHeaders += "Content-Type: application/octet-stream\r\n\r\n";
-        const std::string multipartFooter =
-            "\r\n------WebKitFormBoundarypCbNHDfIecaHIigU--\r\n";
-
-        addData("POST /upload HTTP/1.1\r\nHost: localhost\r\n");
-        if (includeContentType) {
-            addData("Content-Type: multipart/form-data;");
-            if (includeBoundaryParameter) {
-                addData(" boundary=----WebKitFormBoundarypCbNHDfIecaHIigU");
-            }
-            addData("\r\n");
-        }
-        if (includeContentLength) {
-            addData("Content-Length: ");
-            addData(std::to_string(multipartHeaders.size() + payload.size() +
-                                   multipartFooter.size())
-                        .c_str());
-            addData("\r\n");
-        }
-        addData("\r\n");
-        addData(multipartHeaders.c_str());
-        addBytes(payload);
-        fileBytes = payload;
-        addData(multipartFooter.c_str());
-    }
-
-    void buildFixtureUploadRequest() {
-        std::ifstream file("test/host/sent.txt", std::ios::binary);
-        TEST_ASSERT_TRUE_MESSAGE(file.is_open(),
-                                 "Test fixture could not be opened");
-
-        std::vector<byte> payload;
-        char value;
-        while (file.get(value)) {
-            payload.push_back(static_cast<byte>(value));
-        }
-        buildUploadRequest(payload);
-    }
-
     void buildHeaders() { addData("Host: localhost\r\n\r\n"); }
 
     void buildSensitiveHeaders() {
@@ -147,10 +54,6 @@ public:
 private:
     void addData(const char *message) {
         data.insert(data.end(), message, message + std::strlen(message));
-    }
-
-    void addBytes(const std::vector<byte> &bytes) {
-        data.insert(data.end(), bytes.begin(), bytes.end());
     }
 };
 
@@ -170,18 +73,14 @@ public:
     }
 };
 
-void testDeviceInfoIsJsonWithoutAccessingSD() {
+void testDeviceInfoIsJson() {
     WiFiClientTmp client;
     client.buildHeaders();
     WebServerManager manager;
     FlashManager flash;
     flash.isSetup = true;
-    SDCardManagerTmp sd;
     manager.flashManager = &flash;
-    manager.sdCardManager = &sd;
     manager.deviceId = "remote-sd-001122334455";
-    int switches = 0;
-    manager.sf = [&](bool) { ++switches; };
 
     TEST_ASSERT_FALSE(manager.checkEndpoints(&client, "GET /api/device HTTP/1.1\r"));
     TEST_ASSERT_EQUAL_STRING(
@@ -190,55 +89,45 @@ void testDeviceInfoIsJsonWithoutAccessingSD() {
         "{\"type\":\"remote-sd\",\"id\":\"remote-sd-001122334455\","
         "\"name\":\"Remote SD\",\"api_version\":1}",
         client.response.c_str());
-    TEST_ASSERT_EQUAL(0, switches);
-    TEST_ASSERT_EQUAL(0, sd.beginCalls);
 }
 
-void testFileListReturnsCacheWithoutAccessingSD() {
-    WiFiClientTmp client;
-    client.buildHeaders();
-    WebServerManager manager;
+void testFileOperationsAreUnavailable() {
     FlashManager flash;
-    flash.isSetup = true;
-    SDCardManagerTmp sd;
+    WebServerManager manager;
     manager.flashManager = &flash;
-    manager.sdCardManager = &sd;
-    manager.filesInSD = {{"quote\"\\\n.gcode", 42}, {"other", 0}};
-    int switches = 0;
-    manager.sf = [&](bool) { ++switches; };
-
-    manager.checkEndpoints(&client, "GET /api/files HTTP/1.1\r");
-    TEST_ASSERT_TRUE(client.response.find("application/json") != std::string::npos);
-    TEST_ASSERT_TRUE(client.response.find("Cache-Control: no-store") != std::string::npos);
-    TEST_ASSERT_TRUE(client.response.find(
-        "[{\"name\":\"quote\\\"\\\\\\u000a.gcode\",\"size\":42},"
-        "{\"name\":\"other\",\"size\":0}]") != std::string::npos);
-    TEST_ASSERT_EQUAL(0, switches);
-    TEST_ASSERT_EQUAL(0, sd.listCalls);
-
-    manager.filesInSD.clear();
-    WiFiClientTmp emptyClient;
-    emptyClient.buildHeaders();
-    manager.checkEndpoints(&emptyClient, "GET /api/files HTTP/1.1\r");
-    TEST_ASSERT_TRUE(emptyClient.response.find("\r\n\r\n[]") != std::string::npos);
-    flash.isSetup = false;
-    WiFiClientTmp setupClient;
-    setupClient.buildHeaders();
-    manager.checkEndpoints(&setupClient, "GET /api/files HTTP/1.1\r");
-    TEST_ASSERT_TRUE(setupClient.response.find("404 Not Found") != std::string::npos);
-    TEST_ASSERT_EQUAL(0, switches);
+    const char *requests[] = {
+        "POST /upload HTTP/1.1\r",
+        "GET /api/files HTTP/1.1\r",
+        "DELETE /?file=test.gcode HTTP/1.1\r"
+    };
+    for (bool configured : {false, true}) {
+        flash.isSetup = configured;
+        for (const char *request : requests) {
+            SetupConnectionClient client;
+            client.setRequest("Host: localhost\r\n\r\nunread body");
+            manager.checkEndpoints(&client, request);
+            TEST_ASSERT_TRUE(client.response.find(
+                configured ? "503 Service Unavailable" : "404 Not Found") !=
+                std::string::npos);
+            TEST_ASSERT_TRUE(client.response.find("File operations are unavailable") !=
+                             std::string::npos);
+            TEST_ASSERT_TRUE(client.stopped);
+            TEST_ASSERT_EQUAL(0, client.index);
+        }
+    }
 }
 
-void testUploadPageEscapesFileNames() {
+void testConfiguredPageShowsFileOperationsUnavailable() {
     WiFiClientTmp client;
     client.buildHeaders();
-    WebServerManager manager;
     FlashManager flash;
     flash.isSetup = true;
+    WebServerManager manager;
     manager.flashManager = &flash;
-    manager.filesInSD = {{"a'\"<b>&.gcode", 3}};
     manager.checkEndpoints(&client, "GET / HTTP/1.1\r");
-    TEST_ASSERT_TRUE(client.response.find("a&#39;&quot;&lt;b&gt;&amp;.gcode") !=
+    TEST_ASSERT_TRUE(client.response.find("File operations are unavailable") !=
+                     std::string::npos);
+    TEST_ASSERT_TRUE(client.response.find("Printer USB integration is not implemented") !=
                      std::string::npos);
 }
 
@@ -537,338 +426,6 @@ void testSetupRejectsMissingAndOversizeSsid() {
     TEST_ASSERT_EQUAL_UINT8(0xff, eepromData[CONFIG_STATUS_ADDRESS]);
 }
 
-void testUploadPollsWhileWaitingForHeaders() {
-    class WaitingClient : public WiFiClientTmp {
-    public:
-        bool open = true;
-        bool connected() override { return open; }
-        bool available() override { return false; }
-    } client;
-
-    WebServerManager webServerManager;
-    int polls = 0;
-    webServerManager.checkResetButton = [&]() {
-        if (++polls == 3) {
-            client.open = false;
-        }
-    };
-
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(3, polls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadPollsWhileWaitingForFileData() {
-    class WaitingClient : public WiFiClientTmp {
-    public:
-        bool open = true;
-        bool connected() override { return open; }
-    } client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'));
-    client.readStringUntil('\n');
-    client.data.resize(client.data.size() - client.fileBytes.size() -
-                       std::strlen("\r\n------WebKitFormBoundarypCbNHDfIecaHIigU--\r\n"));
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    int emptyPolls = 0;
-    webServerManager.checkResetButton = [&]() {
-        if (sdCardManager.openCalls && !client.available() &&
-            ++emptyPolls == 3) {
-            client.open = false;
-        }
-    };
-
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(3, emptyPolls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.openCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.closeCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.endCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.listCalls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") != std::string::npos);
-}
-
-void testUploadFileCopiesFixtureExactly() {
-    WiFiClientTmp client;
-    client.buildFixtureUploadRequest();
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    sdCardManager.files = {{"test.bin", client.fileBytes.size()}};
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_FALSE(client.fileBytes.empty());
-    TEST_ASSERT_EQUAL(client.fileBytes.size(), sdCardManager.data.size());
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(client.fileBytes.data(),
-                                  sdCardManager.data.data(),
-                                  client.fileBytes.size());
-    TEST_ASSERT_EQUAL(1, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.openCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.closeCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.endCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.listCalls);
-    TEST_ASSERT_EQUAL(1, webServerManager.filesInSD.size());
-    TEST_ASSERT_EQUAL_STRING("test.bin", webServerManager.filesInSD[0].name.c_str());
-    TEST_ASSERT_TRUE(client.response.find("204 No Content") !=
-                     std::string::npos);
-}
-
-void testUploadReportsMountFailureWithoutModifyingCard() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'));
-    client.readStringUntil('\n');
-    WebServerManager manager;
-    SDCardManagerTmp sd;
-    sd.beginResult = false;
-    manager.sdCardManager = &sd;
-
-    manager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(1, sd.beginCalls);
-    TEST_ASSERT_EQUAL(0, sd.removeCalls);
-    TEST_ASSERT_EQUAL(0, sd.openCalls);
-    TEST_ASSERT_EQUAL(0, sd.endCalls);
-    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
-                     std::string::npos);
-}
-
-void testMountFailureReleasesSwitchWithoutWaitingForUploadBody() {
-    class WaitingClient : public WiFiClientTmp {
-    public:
-        bool connected() override { return true; }
-    } client;
-    client.buildUploadRequest(std::vector<byte>());
-    client.data.resize(client.data.size() - client.fileBytes.size() -
-                       std::strlen("\r\n------WebKitFormBoundarypCbNHDfIecaHIigU--\r\n"));
-    WebServerManager manager;
-    SDCardManagerTmp sd;
-    sd.beginResult = false;
-    manager.sdCardManager = &sd;
-    std::vector<bool> states;
-    manager.sf = [&](bool enabled) { states.push_back(enabled); };
-    client.readStringUntil('\n');
-
-    manager.checkEndpoints(&client, "POST /upload HTTP/1.1");
-
-    TEST_ASSERT_EQUAL(2, states.size());
-    TEST_ASSERT_TRUE(states[0]);
-    TEST_ASSERT_FALSE(states[1]);
-    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
-                     std::string::npos);
-}
-
-void testDeleteMountFailurePreservesCacheAndReportsError() {
-    WiFiClientTmp client;
-    client.data = {'\r', '\n'};
-    WebServerManager manager;
-    SDCardManagerTmp sd;
-    sd.beginResult = false;
-    manager.sdCardManager = &sd;
-    manager.filesInSD = {{"existing.gcode", 42}};
-
-    manager.checkEndpoints(&client, "DELETE /?file=existing.gcode HTTP/1.1");
-
-    TEST_ASSERT_EQUAL(1, sd.beginCalls);
-    TEST_ASSERT_EQUAL(0, sd.removeCalls);
-    TEST_ASSERT_EQUAL(0, sd.listCalls);
-    TEST_ASSERT_EQUAL(1, manager.filesInSD.size());
-    TEST_ASSERT_TRUE(client.response.find("500 Internal Server Error") !=
-                     std::string::npos);
-}
-
-void testDeleteMountsOnceAndUnmounts() {
-    WiFiClientTmp client;
-    client.data = {'\r', '\n'};
-    WebServerManager manager;
-    SDCardManagerTmp sd;
-    manager.sdCardManager = &sd;
-
-    manager.checkEndpoints(&client, "DELETE /?file=existing.gcode HTTP/1.1");
-
-    TEST_ASSERT_EQUAL(1, sd.beginCalls);
-    TEST_ASSERT_EQUAL(1, sd.removeCalls);
-    TEST_ASSERT_EQUAL(1, sd.listCalls);
-    TEST_ASSERT_EQUAL(1, sd.endCalls);
-    TEST_ASSERT_TRUE(client.response.find("204 No Content") != std::string::npos);
-}
-
-void testUploadFilePreservesBinaryDataAcrossBufferBoundaries() {
-    std::vector<byte> payload(1400);
-    for (size_t index = 0; index < payload.size(); ++index) {
-        payload[index] = static_cast<byte>((index * 37) % 256);
-    }
-    payload[0] = 0;
-    payload[511] = '\r';
-    payload[512] = '\n';
-    payload[1023] = '\r';
-    payload[1024] = '\n';
-
-    WiFiClientTmp client;
-    client.buildUploadRequest(payload);
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(payload.size(), sdCardManager.data.size());
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(payload.data(), sdCardManager.data.data(),
-                                  payload.size());
-}
-
-void testUploadFileAcceptsEmptyFile() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>());
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_TRUE(sdCardManager.data.empty());
-    TEST_ASSERT_EQUAL(1, sdCardManager.openCalls);
-    TEST_ASSERT_EQUAL(1, sdCardManager.closeCalls);
-    TEST_ASSERT_TRUE(client.response.find("204 No Content") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsMissingRequiredHeader() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(), false);
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(sdCardManager.data.empty());
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsMissingContentType() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(), true, false);
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsMissingFilename() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'), true, true, false);
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(sdCardManager.data.empty());
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsEmptyFilename() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'), true, true, true,
-                              "------WebKitFormBoundarypCbNHDfIecaHIigU", "");
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsFilenamePathSeparators() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'), true, true, true,
-                              "------WebKitFormBoundarypCbNHDfIecaHIigU",
-                              "../outside.bin");
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsUnexpectedInitialBoundary() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(4, 'x'), true, true, true,
-                              "------unexpected-boundary");
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(sdCardManager.data.empty());
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
-void testUploadRejectsMissingBoundaryParameter() {
-    WiFiClientTmp client;
-    client.buildUploadRequest(std::vector<byte>(), true, true, true,
-                              "------WebKitFormBoundarypCbNHDfIecaHIigU",
-                              "test.bin", false);
-    client.readStringUntil('\n');
-
-    WebServerManager webServerManager;
-    SDCardManagerTmp sdCardManager;
-    webServerManager.sdCardManager = &sdCardManager;
-    webServerManager.handleFileUpload(&client);
-
-    TEST_ASSERT_EQUAL(0, sdCardManager.beginCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.removeCalls);
-    TEST_ASSERT_EQUAL(0, sdCardManager.openCalls);
-    TEST_ASSERT_TRUE(client.response.find("400 Bad Request") !=
-                     std::string::npos);
-}
-
 void testParseQueryParameters() {
     WebServerManager webServerManager;
     String query = "GET /delete?file=test.txt&other=123 HTTP/1.1";
@@ -913,38 +470,6 @@ void testParseQueryParametersHandlesEmptyQuery() {
     TEST_ASSERT_TRUE(params.empty());
 }
 
-void testCopyBytesCopiesRequestedRange() {
-    uint8_t destination[5] = {0, 0, 0, 0, 0};
-    uint8_t source[3] = {1, 2, 3};
-
-    copyBytes(destination, source, 3);
-
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(source, destination, 3);
-    source[0] = 5;
-    TEST_ASSERT_EQUAL_UINT8(1, destination[0]);
-}
-
-void testCopyBytesCopiesAtOffsetWithoutOverwritingNeighbors() {
-    uint8_t destination[5] = {3, 0, 0, 0, 9};
-    uint8_t source[3] = {1, 2, 3};
-
-    copyBytes(destination + 1, source, 3);
-
-    TEST_ASSERT_EQUAL_UINT8(3, destination[0]);
-    TEST_ASSERT_EQUAL_UINT8_ARRAY(source, destination + 1, 3);
-    TEST_ASSERT_EQUAL_UINT8(9, destination[4]);
-}
-
-void testCopyBytesHandlesZeroLength() {
-    uint8_t destination[2] = {7, 9};
-    uint8_t source[2] = {1, 2};
-
-    copyBytes(destination, source, 0);
-
-    TEST_ASSERT_EQUAL_UINT8(7, destination[0]);
-    TEST_ASSERT_EQUAL_UINT8(9, destination[1]);
-}
-
 void setUp(void) {
     ArduinoFakeReset();
     fakeMillis = 0;
@@ -971,9 +496,9 @@ void tearDown(void) {}
 
 int runUnitTests() {
     UNITY_BEGIN();
-    RUN_TEST(testDeviceInfoIsJsonWithoutAccessingSD);
-    RUN_TEST(testFileListReturnsCacheWithoutAccessingSD);
-    RUN_TEST(testUploadPageEscapesFileNames);
+    RUN_TEST(testDeviceInfoIsJson);
+    RUN_TEST(testFileOperationsAreUnavailable);
+    RUN_TEST(testConfiguredPageShowsFileOperationsUnavailable);
     RUN_TEST(testSetupSavesNameAndEndpointReturnsIt);
     RUN_TEST(testSetupDoesNotLogRequestHeaders);
     RUN_TEST(testSetupRestartsAfterResponseEvenWithMoreClientData);
@@ -987,29 +512,10 @@ int runUnitTests() {
     RUN_TEST(testNetworkScanFailuresAndSetupMode);
     RUN_TEST(testNetworkScanCapsResults);
     RUN_TEST(testSetupRejectsMissingAndOversizeSsid);
-    RUN_TEST(testUploadPollsWhileWaitingForHeaders);
-    RUN_TEST(testUploadPollsWhileWaitingForFileData);
-    RUN_TEST(testUploadFileCopiesFixtureExactly);
-    RUN_TEST(testUploadReportsMountFailureWithoutModifyingCard);
-    RUN_TEST(testMountFailureReleasesSwitchWithoutWaitingForUploadBody);
-    RUN_TEST(testDeleteMountFailurePreservesCacheAndReportsError);
-    RUN_TEST(testDeleteMountsOnceAndUnmounts);
-    RUN_TEST(testUploadFilePreservesBinaryDataAcrossBufferBoundaries);
-    RUN_TEST(testUploadFileAcceptsEmptyFile);
-    RUN_TEST(testUploadRejectsMissingRequiredHeader);
-    RUN_TEST(testUploadRejectsMissingContentType);
-    RUN_TEST(testUploadRejectsMissingFilename);
-    RUN_TEST(testUploadRejectsEmptyFilename);
-    RUN_TEST(testUploadRejectsFilenamePathSeparators);
-    RUN_TEST(testUploadRejectsUnexpectedInitialBoundary);
-    RUN_TEST(testUploadRejectsMissingBoundaryParameter);
     RUN_TEST(testParseQueryParameters);
     RUN_TEST(testParseQueryParametersDecodesFormValues);
     RUN_TEST(testParseQueryParametersPreservesMalformedEscapes);
     RUN_TEST(testParseQueryParametersHandlesEmptyQuery);
-    RUN_TEST(testCopyBytesCopiesRequestedRange);
-    RUN_TEST(testCopyBytesCopiesAtOffsetWithoutOverwritingNeighbors);
-    RUN_TEST(testCopyBytesHandlesZeroLength);
     return UNITY_END();
 }
 

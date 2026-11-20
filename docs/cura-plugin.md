@@ -1,17 +1,15 @@
 # Cura Remote SD plugin
 
 The `ultimate-cura-plugin` directory contains a Cura 5 output-device plugin.
+**Uploads are unavailable with the current firmware:** SD-card access was
+removed and its printer USB replacement is not implemented. Discovery still
+works, but upload requests receive HTTP 503.
+
 After slicing, select **Save to Remote-SD** from the arrow beside Cura's save
 button, then click the save button. The plugin scans for
 `_remote-sd._tcp.local.`, verifies `/api/device`, and asks which device to use
 when more than one is found. Confirm the destination before uploading.
 
-Uploads replace a file with the same name without a backup. SD access switches
-the card away from the printer: **do not upload while printing**. Interrupted
-or failed uploads can leave a partial file. Progress measures bytes sent; 100%
-does not mean the device has finished. The success message means the device
-returned an HTTP success response, not that SD-card writes were independently
-verified: the current firmware does not report all card-write failures.
 HTTP and mDNS are unencrypted and unauthenticated, so use a trusted network.
 
 ## Build and install

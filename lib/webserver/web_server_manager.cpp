@@ -1,18 +1,12 @@
 #include "web_server_manager.h"
 
 #include "views/server-config.index.h"
-#include "views/upload-files.index.h"
+#include "views/status.index.h"
 
 #include "../scan_status.h"
 #include "../text_utils.h"
 
 #include <cstdlib>
-
-#ifndef ARDUINO_ARCH_ESP32
-#include <iostream>
-#endif
-
-#define BUFFER_SIZE 512
 
 namespace {
 String escapeJson(const String &value) {
@@ -112,23 +106,18 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
         sendNetworks(client);
         return false;
     }
-    if (message.startsWith("POST /upload")) {
-        connectSD();
-        handleFileUpload(client);
-        disconnectSD();
+    if (message.startsWith("POST /upload ") ||
+        message.startsWith("DELETE /") ||
+        message.startsWith("GET /api/files HTTP/")) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         flashManager->isSetup
+                             ? "File operations are unavailable."
+                             : "File operations are unavailable during setup.");
+        client->stop();
         return false;
-    }
-    if (message.startsWith("DELETE /")) {
-        connectSD();
-        handleFileDeletion(client, message);
-        disconnectSD();
     }
     if (message.startsWith("GET /api/device HTTP/")) {
         handleDeviceInfo(client);
-        return false;
-    }
-    if (message.startsWith("GET /api/files HTTP/")) {
-        handleFileList(client);
         return false;
     }
     if (message.startsWith("GET /")) {
@@ -145,6 +134,7 @@ void WebServerManager::sendTextResponse(WiFiClient *client, int code,
     const char *status = code == 202 ? "202 Accepted" :
                          code == 400 ? "400 Bad Request" :
                          code == 404 ? "404 Not Found" :
+                         code == 503 ? "503 Service Unavailable" :
                                        "500 Internal Server Error";
     client->print(String("HTTP/1.1 ") + status +
                   "\r\nContent-Type: text/plain; charset=utf-8\r\n"
@@ -220,32 +210,10 @@ void WebServerManager::handleDeviceInfo(WiFiClient *client) const {
                   "\",\"api_version\":1}");
 }
 
-void WebServerManager::handleFileList(WiFiClient *client) const {
-    consumeIncomingData(client);
-    if (!flashManager->isSetup) {
-        client->print(prepareHeaders(404));
-        return;
-    }
-    String result = "[";
-    bool first = true;
-    for (const FileInfo &file : filesInSD) {
-        if (!first) result += ',';
-        first = false;
-        result += "{\"name\":\"" + escapeJson(file.name) +
-                  "\",\"size\":" + String(file.size) + "}";
-    }
-    result += "]";
-    client->print(String("HTTP/1.1 200 OK\r\n"
-                         "Content-Type: application/json; charset=utf-8\r\n"
-                         "Cache-Control: no-store\r\nContent-Length: ") +
-                  String(result.length()) + "\r\nConnection: close\r\n\r\n" +
-                  result);
-}
-
 void WebServerManager::handleWebsite(WiFiClient *client,
                                      const String &message) {
     client->print(prepareHeaders(200));
-    client->print(flashManager->isSetup ? prepareUploadHtmlPage()
+    client->print(flashManager->isSetup ? String(status_index_html)
                                         : prepareIndexHtmlPage());
     client->print("\r\n");
     consumeIncomingData(client);
@@ -287,158 +255,6 @@ bool WebServerManager::handleUpdateConfig(WiFiClient *client,
     flashManager->loadSetup();
     client->print(prepareHeaders(204));
     return true;
-}
-
-void WebServerManager::handleFileDeletion(WiFiClient *client,
-                                          const String &message) {
-    const int index = static_cast<int>(String("DELETE /").length()) + 1;
-    std::map<String, String> params = parseQueryParameters(message, index);
-    Serial.println("->" + params["file"]);
-    if (!sdCardManager->begin()) {
-        consumeIncomingData(client);
-        sendTextResponse(client, 500, "Could not mount SD card.");
-        return;
-    }
-    if (params.find("file") != params.end()) {
-        sdCardManager->removeFile(params["file"], false);
-    }
-    filesInSD = sdCardManager->listFiles(false);
-    sdCardManager->end();
-    consumeIncomingData(client);
-    client->print(prepareHeaders(204));
-}
-
-void WebServerManager::handleFileUpload(WiFiClient *client) {
-    auto headers = consumeHeaders(client);
-    if (headers.find("Content-Length") == headers.end() ||
-        headers.find("Content-Type") == headers.end()) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    String boundary = "--";
-    String contentType = headers["Content-Type"];
-    int boundaryIndex = contentType.indexOf("boundary=");
-    if (boundaryIndex == -1) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    boundary += contentType.substring(
-        boundaryIndex + static_cast<int>(String("boundary=").length()));
-
-    String line = client->readStringUntil('\n');
-    if (!line.startsWith(boundary)) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-
-    headers = consumeHeaders(client);
-    if (headers.find("Content-Disposition") == headers.end()) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    String contentDisposition = headers["Content-Disposition"];
-    const String fileNameMarker = "filename=\"";
-    const int fileNameMarkerIndex = contentDisposition.indexOf(fileNameMarker);
-    if (fileNameMarkerIndex == -1) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    const int fileNameIndex =
-        fileNameMarkerIndex + static_cast<int>(fileNameMarker.length());
-    const int fileNameEndIndex =
-        contentDisposition.indexOf("\"", fileNameIndex);
-    if (fileNameEndIndex == -1 || fileNameEndIndex == fileNameIndex) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    String fileName =
-        contentDisposition.substring(fileNameIndex, fileNameEndIndex);
-    if (fileName == "." || fileName == ".." || fileName.indexOf('/') != -1 ||
-        fileName.indexOf('\\') != -1) {
-        client->print(prepareHeaders(400));
-        return;
-    }
-    if (!sdCardManager->begin()) {
-        sendTextResponse(client, 500, "Could not mount SD card.");
-        return;
-    }
-    sdCardManager->removeFile(fileName, false);
-
-    String buffer;
-    byte bBuffer[BUFFER_SIZE * 2];
-    byte bSubBuffer[BUFFER_SIZE * 2];
-    size_t length = 0, subLength = 0;
-    bool complete = false;
-
-    sdCardManager->openFile(fileName);
-    while (client->connected()) {
-        if (checkResetButton) {
-            checkResetButton();
-        }
-        if (client->available()) {
-            byte bCh = client->read();
-            char ch = static_cast<char>(bCh);
-            buffer += ch;
-            if (ch == '\r') {
-                int prevCh = bCh;
-                bCh = client->read();
-                ch = static_cast<char>(bCh);
-                buffer += ch;
-                if (ch == '\n' && buffer.indexOf(boundary) >= 0) {
-                    sdCardManager->appendFile(fileName, bSubBuffer,
-                                              subLength - 1); // remove \r
-                    complete = true;
-                    break;
-                }
-                copyBytes(bSubBuffer + subLength, bBuffer, length);
-                subLength += length;
-                bSubBuffer[subLength++] = prevCh;
-                buffer = "";
-                length = 0;
-            }
-            bBuffer[length++] = bCh;
-            if (subLength + length >= BUFFER_SIZE) {
-                copyBytes(bSubBuffer + subLength, bBuffer, length);
-                subLength += length;
-                sdCardManager->appendFile(fileName, bSubBuffer, subLength);
-                buffer = "";
-                length = subLength = 0;
-            }
-        }
-    }
-
-    sdCardManager->closeFile();
-    if (complete) {
-        filesInSD = sdCardManager->listFiles(false);
-    }
-    sdCardManager->end();
-    if (!complete) Serial.println("Upload interrupted");
-    client->print(prepareHeaders(complete ? 204 : 400));
-}
-
-std::map<String, String>
-WebServerManager::consumeHeaders(WiFiClient *client) const {
-    std::map<String, String> headers;
-    while (client->connected()) {
-        if (checkResetButton) {
-            checkResetButton();
-        }
-        if (client->available()) {
-            String line = client->readStringUntil('\n');
-            if (line.length() <= 2) {
-                break;
-            }
-            String key = line.substring(0, line.indexOf(":"));
-            String value =
-                line.substring(line.indexOf(":") + 2, line.length() - 1);
-#ifndef ARDUINO_ARCH_ESP32
-            std::cout << "Header: " << key.c_str() << " -> " << value.c_str()
-                      << std::endl;
-#endif
-            headers[key] = value;
-        }
-    }
-    return headers;
 }
 
 String WebServerManager::consumeIncomingData(WiFiClient *client) const {
@@ -557,27 +373,5 @@ String WebServerManager::prepareIndexHtmlPage() const {
             result += page[i++];
         }
     }
-    return result;
-}
-
-String WebServerManager::prepareUploadHtmlPage() {
-    String result = String(upload_files_index_html) + "\r\n";
-
-    String filesList;
-    if (filesInSD.empty()) {
-        connectSD();
-        filesInSD = sdCardManager->listFiles(true);
-        disconnectSD();
-    }
-    for (const FileInfo &file : filesInSD) {
-        filesList += "<li><span>" + escapeHtmlAttribute(file.name) + " - " +
-                     String(file.size) +
-                     "</span><button type=\"button\" data-filename=\"" +
-                     escapeHtmlAttribute(file.name) +
-                     "\" onclick=\"del(this.dataset.filename)\">x</button></li>";
-    }
-
-    result.replace("$$FILES$$", filesList);
-
     return result;
 }

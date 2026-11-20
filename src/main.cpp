@@ -12,7 +12,6 @@
 NetworkManager networkManager;
 FlashManager flashManager;
 WebServerManager webServer;
-SDCardManager sdCardManager;
 ResetButton resetButton;
 bool webServerReady = false;
 
@@ -33,10 +32,6 @@ void resetConfigWhenButtonPress() {
         });
 }
 
-void enableSD(bool status) {
-    digitalWrite(HardwarePins::switchSd, status ? LOW : HIGH);
-}
-
 void setup() {
     Serial.begin(9600);
 
@@ -45,12 +40,9 @@ void setup() {
     flashManager.loadSetup();
 
     pinMode(HardwarePins::resetConfig, INPUT_PULLUP);
-    digitalWrite(HardwarePins::switchSd, HIGH);
-    pinMode(HardwarePins::switchSd, OUTPUT);
 
     resetConfigWhenButtonPress();
 
-    enableSD(false);
     webServer.checkResetButton = resetConfigWhenButtonPress;
 
     if (flashManager.isSetup) {
@@ -61,9 +53,7 @@ void setup() {
         }
 
         webServer.flashManager = &flashManager;
-        webServer.sdCardManager = &sdCardManager;
         webServer.rf = []() { ESP.restart(); };
-        webServer.sf = enableSD;
         webServer.setup();
         webServer.run();
         webServerReady = true;
