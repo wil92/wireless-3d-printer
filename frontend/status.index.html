@@ -9,7 +9,64 @@
 <body>
 <main>
     <h1>Remote SD</h1>
-    <p>File operations are unavailable. Printer USB integration is not implemented.</p>
+    <p>Keep the printer idle and do not start a print or use another host during an upload.</p>
+    <button id="refresh" type="button">Refresh printer files</button>
+    <ul id="files"></ul>
+    <form id="upload">
+        <label for="gcode">G-code file</label>
+        <input id="gcode" type="file" accept=".gcode" required>
+        <button id="send" type="submit">Upload to printer</button>
+    </form>
+    <p id="message" role="status"></p>
 </main>
+<script>
+const message = document.getElementById("message");
+const files = document.getElementById("files");
+const refresh = document.getElementById("refresh");
+const send = document.getElementById("send");
+async function loadFiles() {
+    refresh.disabled = true;
+    try {
+        const response = await fetch("/api/files", {cache: "no-store"});
+        if (!response.ok) throw new Error(await response.text());
+        const entries = await response.json();
+        files.replaceChildren();
+        for (const entry of entries) {
+            const item = document.createElement("li");
+            item.textContent = entry.name + " (" + entry.size + " bytes)";
+            files.appendChild(item);
+        }
+        message.textContent = "Printer file list updated.";
+    } catch (error) {
+        message.textContent = "Could not list files: " + error.message;
+    } finally {
+        refresh.disabled = false;
+    }
+}
+refresh.addEventListener("click", loadFiles);
+document.getElementById("upload").addEventListener("submit", async function (event) {
+    event.preventDefault();
+    const file = document.getElementById("gcode").files[0];
+    if (!file || !confirm("Upload while the printer is idle? Do not start a print during the transfer.")) return;
+    send.disabled = true;
+    refresh.disabled = true;
+    message.textContent = "Uploading. Keep the printer idle.";
+    try {
+        const response = await fetch("/upload?name=" + encodeURIComponent(file.name), {
+            method: "POST",
+            headers: {"Content-Type": "application/octet-stream"},
+            body: file
+        });
+        const result = await response.text();
+        if (!response.ok) throw new Error(result);
+        message.textContent = result;
+    } catch (error) {
+        message.textContent = "Upload failed: " + error.message + " A partial file may remain.";
+    } finally {
+        send.disabled = false;
+        refresh.disabled = false;
+    }
+});
+</script>
 </body>
 </html>

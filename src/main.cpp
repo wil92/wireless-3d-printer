@@ -6,13 +6,16 @@
 #include "../lib/flash/flash_manager.h"
 #include "../lib/network/access_point_config.h"
 #include "../lib/network/network_manager.h"
+#include "../lib/printer_usb/printer_usb.h"
 #include "../lib/reset/reset_button.h"
 #include "../lib/webserver/web_server_manager.h"
 
-NetworkManager networkManager;
+WifiNetworkManager networkManager;
 FlashManager flashManager;
 WebServerManager webServer;
 ResetButton resetButton;
+PrinterUsb printerUsb;
+MarlinClient printer(printerUsb);
 bool webServerReady = false;
 
 void resetConfigWhenButtonPress() {
@@ -53,6 +56,11 @@ void setup() {
         }
 
         webServer.flashManager = &flashManager;
+        if (printerUsb.begin()) {
+            webServer.printer = &printer;
+        } else {
+            Serial.println("Printer file operations unavailable");
+        }
         webServer.rf = []() { ESP.restart(); };
         webServer.setup();
         webServer.run();

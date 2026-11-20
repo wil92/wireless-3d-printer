@@ -1,6 +1,7 @@
 #include <ArduinoFake.h>
 #include <EEPROM.h>
 #include <cstring>
+#include <deque>
 #include <map>
 #include <string>
 #include <unity.h>
@@ -73,6 +74,107 @@ public:
     }
 };
 
+class PrinterTestTransport : public MarlinTransport {
+public:
+    std::deque<char> incoming;
+    std::vector<std::string> writes;
+    unsigned long time = 0;
+    bool busy = false;
+
+    bool connected() override { return true; }
+    bool write(const char *data, size_t length) override {
+        std::string command(data, length), reply = "ok\n";
+        writes.push_back(command);
+        if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
+        else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
+        else if (command == "M20\n") reply = "Begin file list\nOLD.GCO 42\nEnd file list\nok\n";
+        else if (command.find("M28 ") == 0) reply = "Writing to file: NEW.GCO\nok\n";
+        else if (command == "M29\n") reply = "Done saving file\nok\n";
+        for (char c : reply) incoming.push_back(c);
+        return true;
+    }
+    int read(unsigned long timeout) override {
+        if (incoming.empty()) { time += timeout; return -1; }
+        const char c = incoming.front();
+        incoming.pop_front();
+        ++time;
+        return static_cast<unsigned char>(c);
+    }
+    unsigned long now() override { return time; }
+    uint32_t session() override { return 1; }
+};
+
+void testPrinterListAndRawUpload() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient list;
+    list.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&list, "GET /api/files HTTP/1.1\r");
+    TEST_ASSERT_TRUE(list.response.find("\"name\":\"OLD.GCO\",\"size\":42") != std::string::npos);
+    SetupConnectionClient upload;
+    upload.setRequest("Content-Type: application/octet-stream\r\n"
+                      "Content-Length: 6\r\n\r\nG1 X1\n");
+    manager.checkEndpoints(&upload, "POST /upload?name=new.gcode HTTP/1.1\r");
+    TEST_ASSERT_TRUE(upload.response.find("200 OK") != std::string::npos);
+    TEST_ASSERT_TRUE(upload.response.find("Saved as NEW.GCO") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes.back().c_str());
+}
+
+void testPrinterBusyDoesNotStartUpload() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    transport.busy = true;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient upload;
+    upload.setRequest("Content-Type: application/octet-stream\r\n"
+                      "Content-Length: 6\r\n\r\nG1 X1\n");
+    manager.checkEndpoints(&upload, "POST /upload?name=new.gcode HTTP/1.1\r");
+    TEST_ASSERT_TRUE(upload.response.find("409 Conflict") != std::string::npos);
+    TEST_ASSERT_EQUAL_UINT(2, transport.writes.size());
+}
+
+void testTruncatedUploadClosesPrinterFileAndReportsFailure() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient upload;
+    upload.setRequest("Content-Type: application/octet-stream\r\n"
+                      "Content-Length: 10\r\n\r\nG1 X1\n");
+    manager.checkEndpoints(&upload, "POST /upload?name=new.gcode HTTP/1.1\r");
+    TEST_ASSERT_TRUE(upload.response.find("503 Service Unavailable") != std::string::npos);
+    TEST_ASSERT_TRUE(upload.response.find("partial file") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes.back().c_str());
+}
+
+void testUploadRejectsDuplicateContentLengthBeforePrinterAccess() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient upload;
+    upload.setRequest("Content-Type: application/octet-stream\r\n"
+                      "Content-Length: 6\r\nContent-Length: 6\r\n\r\nG1 X1\n");
+    manager.checkEndpoints(&upload, "POST /upload?name=new.gcode HTTP/1.1\r");
+    TEST_ASSERT_TRUE(upload.response.find("400 Bad Request") != std::string::npos);
+    TEST_ASSERT_TRUE(transport.writes.empty());
+}
+
 void testDeviceInfoIsJson() {
     WiFiClientTmp client;
     client.buildHeaders();
@@ -117,7 +219,7 @@ void testFileOperationsAreUnavailable() {
     }
 }
 
-void testConfiguredPageShowsFileOperationsUnavailable() {
+void testConfiguredPageShowsPrinterControls() {
     WiFiClientTmp client;
     client.buildHeaders();
     FlashManager flash;
@@ -125,10 +227,8 @@ void testConfiguredPageShowsFileOperationsUnavailable() {
     WebServerManager manager;
     manager.flashManager = &flash;
     manager.checkEndpoints(&client, "GET / HTTP/1.1\r");
-    TEST_ASSERT_TRUE(client.response.find("File operations are unavailable") !=
-                     std::string::npos);
-    TEST_ASSERT_TRUE(client.response.find("Printer USB integration is not implemented") !=
-                     std::string::npos);
+    TEST_ASSERT_TRUE(client.response.find("Refresh printer files") != std::string::npos);
+    TEST_ASSERT_TRUE(client.response.find("Upload to printer") != std::string::npos);
 }
 
 void testSetupSavesNameAndEndpointReturnsIt() {
@@ -497,8 +597,12 @@ void tearDown(void) {}
 int runUnitTests() {
     UNITY_BEGIN();
     RUN_TEST(testDeviceInfoIsJson);
+    RUN_TEST(testPrinterListAndRawUpload);
+    RUN_TEST(testPrinterBusyDoesNotStartUpload);
+    RUN_TEST(testTruncatedUploadClosesPrinterFileAndReportsFailure);
+    RUN_TEST(testUploadRejectsDuplicateContentLengthBeforePrinterAccess);
     RUN_TEST(testFileOperationsAreUnavailable);
-    RUN_TEST(testConfiguredPageShowsFileOperationsUnavailable);
+    RUN_TEST(testConfiguredPageShowsPrinterControls);
     RUN_TEST(testSetupSavesNameAndEndpointReturnsIt);
     RUN_TEST(testSetupDoesNotLogRequestHeaders);
     RUN_TEST(testSetupRestartsAfterResponseEvenWithMoreClientData);

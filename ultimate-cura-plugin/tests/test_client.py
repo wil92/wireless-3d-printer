@@ -71,11 +71,10 @@ class ClientTests(unittest.TestCase):
             f.flush()
             client.upload(self.device, f.name, "sample.gcode", progress.append)
         path, headers, body = Handler.uploads[0]
-        boundary = headers["Content-Type"].split("boundary=")[1].encode()
-        self.assertEqual(path, "/upload")
+        self.assertEqual(headers["Content-Type"], "application/octet-stream")
+        self.assertEqual(path, "/upload?name=sample.gcode")
         self.assertEqual(len(body), int(headers["Content-Length"]))
-        self.assertIn(b'name="file"; filename="sample.gcode"', body)
-        self.assertIn(b"\r\n\r\n" + data + b"\r\n--" + boundary + b"--\r\n", body)
+        self.assertEqual(body, data)
         self.assertEqual(progress[-1], 100)
         self.assertEqual(progress, sorted(progress))
 

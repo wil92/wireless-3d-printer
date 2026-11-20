@@ -5,14 +5,14 @@ import ipaddress
 import json
 import os
 import re
-import secrets
 import socket
 import time
+from urllib.parse import quote
 from dataclasses import dataclass
 
 SERVICE = "_remote-sd._tcp.local."
 CONNECT_TIMEOUT = 5
-UPLOAD_TIMEOUT = 120
+UPLOAD_TIMEOUT = 600
 
 
 @dataclass(frozen=True)
@@ -106,22 +106,16 @@ def discover(duration=3):
 
 def upload(device, path, filename, progress=lambda percent: None):
     filename = safe_filename(filename)
-    boundary = "RemoteSD" + secrets.token_hex(16)
-    prefix = (
-        "--{}\r\n"
-        "Content-Disposition: form-data; name=\"file\"; filename=\"{}\"\r\n"
-        "Content-Type: application/octet-stream\r\n\r\n"
-    ).format(boundary, filename).encode("ascii")
-    suffix = ("\r\n--{}--\r\n".format(boundary)).encode("ascii")
     size = os.path.getsize(path)
+    if not size:
+        raise ValueError("G-code file is empty")
     connection = http.client.HTTPConnection(device.address, device.port, timeout=UPLOAD_TIMEOUT)
     try:
-        connection.putrequest("POST", "/upload")
-        connection.putheader("Content-Type", "multipart/form-data; boundary=" + boundary)
-        connection.putheader("Content-Length", str(len(prefix) + size + len(suffix)))
+        connection.putrequest("POST", "/upload?name=" + quote(filename, safe=""))
+        connection.putheader("Content-Type", "application/octet-stream")
+        connection.putheader("Content-Length", str(size))
         connection.putheader("Connection", "close")
         connection.endheaders()
-        connection.send(prefix)
         sent = 0
         with open(path, "rb") as stream:
             while True:
@@ -131,11 +125,11 @@ def upload(device, path, filename, progress=lambda percent: None):
                 connection.send(chunk)
                 sent += len(chunk)
                 progress(int(sent * 100 / size))
-        connection.send(suffix)
         response = connection.getresponse()
-        response.read(4096)
+        detail = response.read(4096).decode("utf-8", errors="replace")
         if not 200 <= response.status < 300:
-            raise RuntimeError("Upload failed: HTTP {}".format(response.status))
+            raise RuntimeError("Upload failed: HTTP {} {}".format(response.status, detail))
+        return detail
     except socket.timeout as error:
         raise RuntimeError("Upload timed out; the device may have a partial file") from error
     finally:

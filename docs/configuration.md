@@ -66,11 +66,12 @@ replaces the previous results.
 
 ## USB
 
-`usb_config.h` defines `ARDUINO_USB_MODE` and `ARDUINO_USB_CDC_ON_BOOT`; both
-default to `1` in `../src/main.h` if not defined in the local header. These are
+`usb_config.h` defines `ARDUINO_USB_MODE` and `ARDUINO_USB_CDC_ON_BOOT`; they
+default to `1` and `0`, respectively, in `../src/main.h`. These are
 Arduino framework settings, so PlatformIO force-includes `src/main.h` in
-every firmware compilation, including the framework and libraries. Change
-them only if appropriate for the connected board and its USB setup.
+every firmware compilation, including the framework and libraries. USB CDC
+on boot must remain disabled because the native USB PHY is used by the printer
+host. Diagnostic `Serial` output uses the UART, not the native USB connector.
 
 After adding, changing, or removing `usb_config.h`, or changing the defaults
 in `../src/main.h`, run `pio run -e esp32dev -t clean` before building.
@@ -78,7 +79,8 @@ PlatformIO may otherwise reuse objects compiled with the previous settings.
 
 ## Building and testing
 
-The `esp32dev` environment uses the ESP32-S3 DevKitC board profile for the
+The `esp32dev` environment uses the pinned pioarduino 55.03.39 platform
+(Arduino 3.3.9 / ESP-IDF 5.5.4) and ESP32-S3 DevKitC board profile for the
 SuperMini, with a 4 MB flash size and partition layout and no PSRAM enabled.
 Confirm the actual board's flash capacity and mode before flashing; board
 variants may require different PlatformIO settings. The upload port is
@@ -91,3 +93,6 @@ from the project root with `pio test -e tests`. Run the configuration-header tes
 do not upload firmware.
 Run `python3 build_views.py --check` and `node test/host/frontend_test.js`
 to check generated pages and frontend interactions.
+If the pioarduino-managed Python environment cannot import `minify_html`,
+install the package in that environment as well as in the Python environment
+used to run `build_views.py` directly.

@@ -36,7 +36,7 @@ class ConfigurationHeadersTest(unittest.TestCase):
         self.compile("""
             #include "src/main.h"
             static_assert(ARDUINO_USB_MODE == 1, "USB mode");
-            static_assert(ARDUINO_USB_CDC_ON_BOOT == 1, "USB CDC");
+            static_assert(ARDUINO_USB_CDC_ON_BOOT == 0, "USB CDC");
         """)
 
     def test_usb_local_values_override_defaults(self):

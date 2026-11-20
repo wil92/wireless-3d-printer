@@ -130,9 +130,58 @@ async function exercise(path) {
     assert.equal(elements.refresh.disabled, true);
 }
 
+async function exercisePrinter(path) {
+    const html = fs.readFileSync(path, "utf8");
+    const script = html.match(/<script>([\s\S]*?)<\/script>/);
+    assert.ok(script, `Missing printer script in ${path}`);
+    const elements = {};
+    for (const id of ["message", "files", "refresh", "upload", "gcode", "send"]) {
+        elements[id] = element();
+        elements[id].addEventListener = (name, callback) => {
+            elements[id][name] = callback;
+        };
+    }
+    const requests = [];
+    let reply = response(200, JSON.stringify([{name: "<unsafe>.GCO", size: 12}]));
+    let confirmed = true;
+    const context = {
+        document: {
+            getElementById: id => elements[id],
+            createElement: () => element(),
+        },
+        fetch: async (url, options) => {
+            requests.push({url, options});
+            return reply;
+        },
+        confirm: () => confirmed,
+        encodeURIComponent,
+    };
+    vm.runInNewContext(script[1], context);
+    await elements.refresh.click();
+    assert.equal(elements.files.children[0].textContent, "<unsafe>.GCO (12 bytes)");
+    assert.equal(elements.refresh.disabled, false);
+    const file = {name: "my print.gcode"};
+    elements.gcode.files = [file];
+    confirmed = false;
+    await elements.upload.submit({preventDefault() {}});
+    assert.equal(requests.length, 1);
+    confirmed = true;
+    reply = response(200, "Saved as MY_PRINT.GCO");
+    await elements.upload.submit({preventDefault() {}});
+    assert.equal(requests[1].url, "/upload?name=my%20print.gcode");
+    assert.equal(requests[1].options.body, file);
+    assert.equal(elements.message.textContent, "Saved as MY_PRINT.GCO");
+    reply = response(409, "Printer busy");
+    await elements.upload.submit({preventDefault() {}});
+    assert.match(elements.message.textContent, /Printer busy/);
+    assert.equal(elements.send.disabled, false);
+}
+
 (async () => {
     await exercise("frontend/server-config.index.html");
     await exercise("lib/webserver/views/server-config.index.h");
+    await exercisePrinter("frontend/status.index.html");
+    await exercisePrinter("lib/webserver/views/status.index.h");
     const setup = fs.readFileSync("lib/webserver/views/server-config.index.h", "utf8");
     const status = fs.readFileSync("lib/webserver/views/status.index.h", "utf8");
     assert.equal(setup.match(/<style>([\s\S]*?)<\/style>/)[1],

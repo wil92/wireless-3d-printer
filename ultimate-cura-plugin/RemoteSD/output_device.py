@@ -48,6 +48,7 @@ class RemoteSDOutputDevice(OutputDevice):
         self._busy = False
         self._path = None
         self._message = None
+        self._upload_result = None
 
     def requestWrite(self, nodes, file_name=None, limit_mimetypes=False,
                      file_handler=None, filter_by_machine=False, **kwargs):
@@ -55,6 +56,7 @@ class RemoteSDOutputDevice(OutputDevice):
             Message("A Remote SD upload is already in progress.", title="Remote SD").show()
             return
         self._busy = True
+        self._upload_result = None
         self._nodes = nodes
         self._filename = client.safe_filename(file_name)
         self._message = Message("Scanning the local network for Remote SD devices...",
@@ -91,8 +93,8 @@ class RemoteSDOutputDevice(OutputDevice):
         confirmation = QMessageBox.question(
             None, "Save to Remote-SD",
             "Upload {} to {} ({})?\n\n"
-            "An existing file with the same name will be replaced. "
-            "Accessing the SD card can interrupt a print; do not upload while printing."
+            "The printer filename is shortened to 8.3 format; collisions are rejected. "
+            "Keep the printer idle and do not start a print during the upload."
             .format(self._filename, device.name, device.address),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
@@ -131,7 +133,8 @@ class RemoteSDOutputDevice(OutputDevice):
 
     def _upload(self):
         try:
-            client.upload(self._device, self._path, self._filename, self._bridge.progress.emit)
+            self._upload_result = client.upload(
+                self._device, self._path, self._filename, self._bridge.progress.emit)
         except Exception as error:
             self._bridge.uploaded.emit(str(error))
         else:
@@ -148,7 +151,7 @@ class RemoteSDOutputDevice(OutputDevice):
             self._finish("Upload failed: {}. A partial file may remain.".format(error),
                          failed=True, started=True)
         else:
-            self._finish("Upload complete: {}".format(self._filename), started=True)
+            self._finish(self._upload_result or "Upload complete.", started=True)
 
     def _finish(self, text=None, failed=False, started=False):
         if self._message:

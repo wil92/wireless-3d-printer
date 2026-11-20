@@ -7,6 +7,8 @@ size, exposed GPIOs, and connections before use.
 | Connection | ESP32-S3 GPIO |
 | --- | --- |
 | Configuration-reset button | 8 |
+| Native USB D− (printer host) | 19 |
+| Native USB D+ (printer host) | 20 |
 
 Connect a normally open button between GPIO8 and GND. The firmware enables the
 internal pull-up; pressing the button reads low. See
@@ -18,6 +20,23 @@ powering this firmware**, unless
 its independent circuitry has been verified to maintain a safe state without
 ESP32 control. Do not connect two active hosts to the same SD bus.
 
-Printer USB host support is not implemented. Do not use the USB port to connect
-the printer until the host driver, power arrangements, and wiring are defined
-and verified for the actual hardware.
+GPIO19 and GPIO20 are fixed by the ESP32-S3 internal USB PHY; do not swap
+them or reassign them to other functions. The intended connection uses the
+SuperMini's native USB-C connector and the printer's USB connector, not
+GPIO UART wiring. See Espressif's
+[USB PHY pin definitions](https://github.com/espressif/esp-idf/blob/ad20ded62a2d67a26e501fdc1905f43ba7ad6c81/components/soc/esp32s3/include/soc/usb_pins.h).
+
+The firmware uses the native connector in USB host mode for a CH340G device
+at 115200 baud. USB CDC logging on this connector is disabled. Firmware
+flashing and diagnostics need a separate suitable UART connection or another
+board-specific flashing method; check the SuperMini's actual wiring.
+
+The printer's CH340G is a USB device; its connector must not be assumed to
+supply 5 V to the ESP32. Verify the actual SuperMini and printer schematics,
+USB-C host role, VBUS supply, current limits, common ground and back-power
+protection before connecting. A separately supplied 5 V rail from the printer
+board is only suitable after those checks; connecting VBUS directly between
+two powered boards can be unsafe. Connector implementations vary by board.
+The [Marlin integration notes](marlin-usb.md) describe the protocol and its
+operational restrictions. This integration has not been validated on the
+physical printer.

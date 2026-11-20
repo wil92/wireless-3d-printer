@@ -156,7 +156,7 @@ class NetworkPollingTest(unittest.TestCase):
                 FakeMDNS MDNS;
                 int delayCalls = 0;
                 int main() {
-                    NetworkManager manager;
+                    WifiNetworkManager manager;
                     int polls = 0;
                     assert(manager.connectToNetwork("ssid", "password",
                                                     [&]() {

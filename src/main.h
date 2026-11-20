@@ -9,5 +9,9 @@
 #endif
 
 #ifndef ARDUINO_USB_CDC_ON_BOOT
-#define ARDUINO_USB_CDC_ON_BOOT 1
+#define ARDUINO_USB_CDC_ON_BOOT 0
+#endif
+
+#if ARDUINO_USB_CDC_ON_BOOT
+#error "USB CDC on boot conflicts with the printer USB host"
 #endif

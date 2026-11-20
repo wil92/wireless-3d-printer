@@ -4,6 +4,8 @@
 #include <map>
 #include <memory>
 
+#include "../marlin/marlin_client.h"
+
 #ifdef ARDUINO_ARCH_ESP32
 #include <WiFiClient.h>
 #include <WiFiServer.h>
@@ -31,6 +33,12 @@ public:
 private:
 #endif
     void handleDeviceInfo(WiFiClient *client) const;
+
+    void handleFiles(WiFiClient *client);
+
+    void handleUpload(WiFiClient *client, const String &message);
+
+    bool readHttpLine(WiFiClient *client, String &line, size_t limit) const;
 
     void startNetworkScan(WiFiClient *client) const;
 
@@ -74,6 +82,7 @@ public:
     std::unique_ptr<WiFiServer> server;
     ResetFunction rf;
     String deviceId;
+    MarlinClient *printer = nullptr;
 
     void setup();
 

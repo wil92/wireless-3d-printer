@@ -5,13 +5,13 @@
 
 #include "../scan_status.h"
 
-class NetworkManager {
+class WifiNetworkManager {
     IPAddress localIp_;
     IPAddress gateway_;
     IPAddress subnet_;
 
 public:
-    NetworkManager();
+    WifiNetworkManager();
 
     bool connectToNetwork(const char *ssidNetwork, const char *passwordNetwork,
                           const std::function<void()> &checkResetButton = {});

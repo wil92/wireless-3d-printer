@@ -1,14 +1,14 @@
 # Remote SD
 
 This project provides Wi-Fi configuration and network discovery for an
-ESP32-S3. SD-card access has been removed; file management and printer USB
-integration are not currently available.
+ESP32-S3. It connects to a Marlin printer through native USB host mode to list
+and transfer G-code to the printer's SD card.
 
 ## Features
 
 - Wi-Fi setup and configuration reset.
 - mDNS discovery and a device information endpoint for network clients.
-- Lightweight and easy to deploy on microcontrollers.
+- CH340 USB serial support for listing and uploading files to a Marlin printer.
 
 ## Requirements
 
@@ -34,6 +34,7 @@ pio test -e tests -vvv
 
 - [Build configuration](docs/configuration.md)
 - [ESP32-S3 wiring](docs/hardware.md)
+- [Marlin USB integration](docs/marlin-usb.md)
 - [Configuration reset](docs/configuration-reset.md)
 - [Network discovery and device information API](docs/discovery.md)
 - [File management and file list API](docs/file-management.md)

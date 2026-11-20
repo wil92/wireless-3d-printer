@@ -13,13 +13,13 @@ void waitWithResetButtonChecks(const std::function<void()> &checkResetButton) {
 }
 }
 
-NetworkManager::NetworkManager() {
+WifiNetworkManager::WifiNetworkManager() {
     localIp_ = IPAddress(192, 168, 1, 1);
     gateway_ = IPAddress(192, 168, 1, 1);
     subnet_ = IPAddress(255, 255, 255, 0);
 }
 
-bool NetworkManager::connectToNetwork(
+bool WifiNetworkManager::connectToNetwork(
     const char *ssidNetwork, const char *passwordNetwork,
     const std::function<void()> &checkResetButton) {
     if (!ssidNetwork || !ssidNetwork[0] || !passwordNetwork) {
@@ -62,7 +62,7 @@ bool NetworkManager::connectToNetwork(
     return true;
 }
 
-bool NetworkManager::startDiscovery(const String &hostname) const {
+bool WifiNetworkManager::startDiscovery(const String &hostname) const {
     if (!MDNS.begin(hostname)) {
         Serial.println("Failed to start mDNS");
         return false;
@@ -75,20 +75,20 @@ bool NetworkManager::startDiscovery(const String &hostname) const {
     return true;
 }
 
-bool NetworkManager::startScan() const {
+bool WifiNetworkManager::startScan() const {
     WiFi.scanDelete();
     return WiFi.scanNetworks(true) != WIFI_SCAN_FAILED;
 }
 
-int NetworkManager::scanComplete() const {
+int WifiNetworkManager::scanComplete() const {
     const int result = WiFi.scanComplete();
     if (result == WIFI_SCAN_RUNNING) return NETWORK_SCAN_RUNNING;
     return result < 0 ? NETWORK_SCAN_FAILED : result;
 }
 
-String NetworkManager::scanSsid(int index) const { return WiFi.SSID(index); }
+String WifiNetworkManager::scanSsid(int index) const { return WiFi.SSID(index); }
 
-bool NetworkManager::createHotspot(
+bool WifiNetworkManager::createHotspot(
     const char *ssidNetwork, const char *passwordNetwork,
     const std::function<void()> &checkResetButton) const {
     if (!WiFi.mode(WIFI_AP_STA) ||

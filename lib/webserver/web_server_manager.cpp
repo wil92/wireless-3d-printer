@@ -7,6 +7,7 @@
 #include "../text_utils.h"
 
 #include <cstdlib>
+#include <cstring>
 
 namespace {
 String escapeJson(const String &value) {
@@ -106,9 +107,15 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
         sendNetworks(client);
         return false;
     }
-    if (message.startsWith("POST /upload ") ||
-        message.startsWith("DELETE /") ||
-        message.startsWith("GET /api/files HTTP/")) {
+    if (message.startsWith("GET /api/files HTTP/")) {
+        handleFiles(client);
+        return false;
+    }
+    if (message.startsWith("POST /upload?") && message.indexOf(" HTTP/") != -1) {
+        handleUpload(client, message);
+        return false;
+    }
+    if (message.startsWith("POST /upload ") || message.startsWith("DELETE /")) {
         sendTextResponse(client, flashManager->isSetup ? 503 : 404,
                          flashManager->isSetup
                              ? "File operations are unavailable."
@@ -131,9 +138,12 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
 
 void WebServerManager::sendTextResponse(WiFiClient *client, int code,
                                         const String &text) const {
-    const char *status = code == 202 ? "202 Accepted" :
+    const char *status = code == 200 ? "200 OK" :
+                         code == 202 ? "202 Accepted" :
                          code == 400 ? "400 Bad Request" :
                          code == 404 ? "404 Not Found" :
+                         code == 409 ? "409 Conflict" :
+                         code == 413 ? "413 Payload Too Large" :
                          code == 503 ? "503 Service Unavailable" :
                                        "500 Internal Server Error";
     client->print(String("HTTP/1.1 ") + status +
@@ -141,6 +151,184 @@ void WebServerManager::sendTextResponse(WiFiClient *client, int code,
                   "Cache-Control: no-store\r\nContent-Length: " +
                   String(text.length()) + "\r\nConnection: close\r\n\r\n" +
                   text);
+}
+
+bool WebServerManager::readHttpLine(WiFiClient *client, String &line,
+                                    size_t limit) const {
+    line = "";
+    unsigned long lastByte = millis();
+    while (client->connected() && millis() - lastByte < CLIENT_TIMEOUT) {
+        if (!client->available()) {
+            delay(1);
+            continue;
+        }
+        const int c = client->read();
+        if (c < 0) continue;
+        lastByte = millis();
+        if (c == '\n') {
+            if (line.endsWith("\r")) line.remove(line.length() - 1);
+            return true;
+        }
+        if (line.length() >= limit || c == 0) return false;
+        line += static_cast<char>(c);
+    }
+    return false;
+}
+
+void WebServerManager::handleFiles(WiFiClient *client) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         "File operations are unavailable.");
+        client->stop();
+        return;
+    }
+    String header;
+    size_t bytes = 0;
+    do {
+        if (!readHttpLine(client, header, 512) || (bytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+
+    std::vector<MarlinFile> files;
+    if (!printer->listFiles(files)) {
+        sendTextResponse(client, 503, String(printer->error().c_str()));
+        client->stop();
+        return;
+    }
+    String json = "[";
+    for (size_t i = 0; i < files.size(); ++i) {
+        if (i) json += ',';
+        json += "{\"name\":\"" + escapeJson(String(files[i].name.c_str())) +
+                "\",\"size\":" + String(files[i].size) + "}";
+    }
+    json += "]";
+    client->print(String("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                         "Cache-Control: no-store\r\nContent-Length: ") +
+                  String(json.length()) + "\r\nConnection: close\r\n\r\n" + json);
+    client->stop();
+}
+
+void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         "File operations are unavailable.");
+        client->stop();
+        return;
+    }
+    const std::map<String, String> parameters =
+        parseQueryParameters(message, static_cast<int>(String("POST /upload?").length()));
+    const auto name = parameters.find("name");
+    if (name == parameters.end() || name->second.length() > 128 ||
+        name->second.length() != std::strlen(name->second.c_str())) {
+        sendTextResponse(client, 400, "Invalid filename.");
+        client->stop();
+        return;
+    }
+
+    size_t length = 0, headerBytes = 0;
+    bool hasLength = false, hasType = false;
+    String header;
+    do {
+        if (!readHttpLine(client, header, 512) ||
+            (headerBytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+        const int colon = header.indexOf(':');
+        if (colon < 0) {
+            if (header.length()) {
+                sendTextResponse(client, 400, "Invalid request header.");
+                client->stop();
+                return;
+            }
+            continue;
+        }
+        String key = header.substring(0, colon);
+        key.toLowerCase();
+        String value = header.substring(colon + 1);
+        value.trim();
+        if (key == "content-length") {
+            if (hasLength || !value.length() || value.length() > 9) {
+                sendTextResponse(client, 400, "Invalid content length.");
+                client->stop();
+                return;
+            }
+            for (unsigned int i = 0; i < value.length(); ++i) {
+                if (value[i] < '0' || value[i] > '9') {
+                    sendTextResponse(client, 400, "Invalid content length.");
+                    client->stop();
+                    return;
+                }
+                length = length * 10 + value[i] - '0';
+            }
+            hasLength = true;
+        } else if (key == "content-type") {
+            value.toLowerCase();
+            hasType = value == "application/octet-stream";
+        } else if (key == "transfer-encoding") {
+            sendTextResponse(client, 400, "Transfer encoding is not supported.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+
+    if (!hasLength || !hasType || !length || length > 100000000) {
+        sendTextResponse(client, length > 100000000 ? 413 : 400,
+                         "A nonempty binary upload with a valid content length is required.");
+        client->stop();
+        return;
+    }
+    std::string target;
+    if (!printer->beginUpload(name->second.c_str(), target)) {
+        sendTextResponse(client, 409, String(printer->error().c_str()));
+        client->stop();
+        return;
+    }
+    std::string line;
+    bool comment = false, success = true;
+    unsigned long lastByte = millis();
+    for (size_t i = 0; i < length && success;) {
+        if (!client->connected() || millis() - lastByte >= 10000) {
+            success = false;
+            break;
+        }
+        if (!client->available()) {
+            delay(1);
+            continue;
+        }
+        const int c = client->read();
+        if (c < 0) continue;
+        ++i;
+        if ((i & 1023) == 0) delay(0);
+        lastByte = millis();
+        if (c == '\n') {
+            success = printer->uploadLine(line);
+            line.clear();
+            comment = false;
+            lastByte = millis();
+        } else if (c == ';') {
+            comment = true;
+        } else if (!comment) {
+            if (line.size() >= 256) success = false;
+            else line += static_cast<char>(c);
+        }
+    }
+    if (success && !line.empty()) success = printer->uploadLine(line);
+    if (success) success = printer->finishUpload();
+    if (!success) {
+        printer->abortUpload();
+        const String reason = printer->error().empty()
+                                  ? String("Upload interrupted or line too long.")
+                                  : String(printer->error().c_str());
+        sendTextResponse(client, 503, reason + " A partial file may remain.");
+    } else {
+        sendTextResponse(client, 200, String("Saved as ") + target.c_str());
+    }
+    client->stop();
 }
 
 void WebServerManager::startNetworkScan(WiFiClient *client) const {
