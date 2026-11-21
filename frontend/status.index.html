@@ -10,13 +10,14 @@
 <main>
     <h1>Remote SD</h1>
     <p>Keep the printer idle and do not start a print or use another host during an upload.</p>
-    <button id="refresh" type="button">Refresh printer files</button>
-    <ul id="files"></ul>
     <form id="upload">
         <label for="gcode">G-code file</label>
         <input id="gcode" type="file" accept=".gcode" required>
         <button id="send" type="submit">Upload to printer</button>
     </form>
+    <h2>Printer files</h2>
+    <button id="refresh" type="button">Refresh printer files</button>
+    <ul id="files"></ul>
     <p id="message" role="status"></p>
 </main>
 <script>
@@ -24,8 +25,13 @@ const message = document.getElementById("message");
 const files = document.getElementById("files");
 const refresh = document.getElementById("refresh");
 const send = document.getElementById("send");
-async function loadFiles() {
-    refresh.disabled = true;
+function setBusy(busy) {
+    refresh.disabled = busy;
+    send.disabled = busy;
+    for (const button of files.querySelectorAll("button")) button.disabled = busy;
+}
+async function loadFiles(preserveMessage = false) {
+    setBusy(true);
     try {
         const response = await fetch("/api/files", {cache: "no-store"});
         if (!response.ok) throw new Error(await response.text());
@@ -33,23 +39,43 @@ async function loadFiles() {
         files.replaceChildren();
         for (const entry of entries) {
             const item = document.createElement("li");
-            item.textContent = entry.name + " (" + entry.size + " bytes)";
+            const label = document.createElement("span");
+            label.textContent = entry.name + " (" + entry.size + " bytes)";
+            const remove = document.createElement("button");
+            remove.type = "button";
+            remove.textContent = "Remove";
+            remove.addEventListener("click", async () => {
+                if (!confirm("Remove " + entry.name + "? Keep the printer idle.")) return;
+                setBusy(true);
+                try {
+                    const response = await fetch("/api/files?path=" + encodeURIComponent(entry.path), {method: "DELETE"});
+                    const result = await response.text();
+                    if (!response.ok) throw new Error(result);
+                    message.textContent = result;
+                    await loadFiles(true);
+                } catch (error) {
+                    message.textContent = "Could not remove file: " + error.message;
+                } finally {
+                    setBusy(false);
+                }
+            });
+            item.appendChild(label);
+            item.appendChild(remove);
             files.appendChild(item);
         }
-        message.textContent = "Printer file list updated.";
+        if (!preserveMessage) message.textContent = "Printer file list updated.";
     } catch (error) {
         message.textContent = "Could not list files: " + error.message;
     } finally {
-        refresh.disabled = false;
+        setBusy(false);
     }
 }
-refresh.addEventListener("click", loadFiles);
+refresh.addEventListener("click", () => loadFiles());
 document.getElementById("upload").addEventListener("submit", async function (event) {
     event.preventDefault();
     const file = document.getElementById("gcode").files[0];
     if (!file || !confirm("Upload while the printer is idle? Do not start a print during the transfer.")) return;
-    send.disabled = true;
-    refresh.disabled = true;
+    setBusy(true);
     message.textContent = "Uploading. Keep the printer idle.";
     try {
         const response = await fetch("/upload?name=" + encodeURIComponent(file.name), {
@@ -60,13 +86,14 @@ document.getElementById("upload").addEventListener("submit", async function (eve
         const result = await response.text();
         if (!response.ok) throw new Error(result);
         message.textContent = result;
+        await loadFiles(true);
     } catch (error) {
         message.textContent = "Upload failed: " + error.message + " A partial file may remain.";
     } finally {
-        send.disabled = false;
-        refresh.disabled = false;
+        setBusy(false);
     }
 });
+loadFiles();
 </script>
 </body>
 </html>

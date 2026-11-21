@@ -14,6 +14,7 @@ public:
     std::string listing = "Begin file list\nEnd file list\nok\n";
     std::string opening;
     std::string closing = "Done saving file\nok\n";
+    std::string deletion = "File deleted: TEST.GCO\nok\n";
     std::string dataResponse = "ok\n";
     unsigned long time = 0;
     uint32_t generation = 1;
@@ -26,11 +27,12 @@ public:
         std::string reply;
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
         else if (command == "M27\n") reply = status;
-        else if (command == "M20\n") reply = listing;
+        else if (command == "M20 L\n") reply = listing;
         else if (command.find("M28 ") == 0) {
             reply = opening.empty() ? "Writing to file: " + command.substr(5) + "ok\n" : opening;
         }
         else if (command == "M29\n") reply = closing;
+        else if (command.find("M30 ") == 0) reply = deletion;
         else reply = dataResponse;
         for (char c : reply) response.push_back(c);
         return true;
@@ -128,6 +130,7 @@ void testPrinterErrorsAreNotAcknowledgements() {
     TEST_ASSERT_TRUE(client.beginUpload("test.gcode", target));
     transport.dataResponse = "Error:checksum mismatch\nResend:1\nok\n";
     TEST_ASSERT_FALSE(client.uploadLine("G1 X1"));
+    TEST_ASSERT_EQUAL_STRING("Printer reported: Error:checksum mismatch", client.error().c_str());
 }
 
 void testReconnectDuringUploadDoesNotSendToAnotherPrinter() {
@@ -154,6 +157,50 @@ void testMalformedListFailsClosed() {
     TEST_ASSERT_EQUAL_UINT(before, transport.writes.size());
 }
 
+void testLongNamesAndShortNameFallback() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::vector<MarlinFile> files;
+    transport.listing = "Begin file list\nDIR/FILE~1.GCO 123 Models/My print \xc3\xa9.gcode\n"
+                        "OLD.GCO 42\nEnd file list\nok\n";
+    TEST_ASSERT_TRUE(client.listFiles(files));
+    TEST_ASSERT_EQUAL_UINT(2, files.size());
+    TEST_ASSERT_EQUAL_STRING("Models/My print \xc3\xa9.gcode", files[0].name.c_str());
+    TEST_ASSERT_EQUAL_STRING("DIR/FILE~1.GCO", files[0].path.c_str());
+    TEST_ASSERT_EQUAL_STRING("OLD.GCO", files[1].name.c_str());
+    TEST_ASSERT_EQUAL_STRING("OLD.GCO", files[1].path.c_str());
+}
+
+void testDeletesOnlyListedFileWhenIdleAndConfirmed() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 12 Friendly name.gcode\nEnd file list\nok\n";
+    MarlinClient client(transport);
+    TEST_ASSERT_FALSE(client.deleteFile("../TEST.GCO"));
+    TEST_ASSERT_TRUE(transport.writes.empty());
+    TEST_ASSERT_FALSE(client.deleteFile("OTHER.GCO"));
+    TEST_ASSERT_TRUE(client.deleteFile("TEST.GCO"));
+    TEST_ASSERT_EQUAL_STRING("M30 /TEST.GCO\n", transport.writes.back().c_str());
+    transport.deletion = "Deletion failed, File: TEST.GCO.\nok\n";
+    TEST_ASSERT_FALSE(client.deleteFile("TEST.GCO"));
+    transport.deletion = "File deleted: TEST.GCO.OTHER\nok\n";
+    TEST_ASSERT_FALSE(client.deleteFile("TEST.GCO"));
+    transport.status = "SD printing byte 1/100\nok\n";
+    const size_t before = transport.writes.size();
+    TEST_ASSERT_FALSE(client.deleteFile("TEST.GCO"));
+    TEST_ASSERT_EQUAL_UINT(before + 2, transport.writes.size());
+}
+
+void testAllowsM290ButRejectsM29() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("test.gcode", target));
+    TEST_ASSERT_TRUE(client.uploadLine("M290 Z0.05"));
+    TEST_ASSERT_FALSE(client.uploadLine("M29 S1"));
+    TEST_ASSERT_FALSE(client.uploadLine("M290 M29"));
+    client.abortUpload();
+}
+
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -166,5 +213,8 @@ int main() {
     RUN_TEST(testPrinterErrorsAreNotAcknowledgements);
     RUN_TEST(testReconnectDuringUploadDoesNotSendToAnotherPrinter);
     RUN_TEST(testMalformedListFailsClosed);
+    RUN_TEST(testLongNamesAndShortNameFallback);
+    RUN_TEST(testDeletesOnlyListedFileWhenIdleAndConfirmed);
+    RUN_TEST(testAllowsM290ButRejectsM29);
     return UNITY_END();
 }

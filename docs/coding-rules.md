@@ -21,9 +21,9 @@ follow the conventions below.
 - Keep implementation details in `.cpp` files where practical. Put shared
   declarations and small, hardware-independent templates or inline functions
   in headers.
-- Do not edit generated files by hand. For the setup page, edit
-  `frontend/setup.html` and regenerate `lib/portal/views/setup_page.h` with
-  `python3 build_views.py`.
+- Do not edit generated files by hand. Edit pages in `frontend/` and
+  regenerate headers in `lib/webserver/views/` with
+  `python3 scripts/build_views.py`.
 
 ## C++ naming
 

@@ -19,12 +19,14 @@ public:
 struct MarlinFile {
     std::string name;
     uint32_t size;
+    std::string path;
 };
 
 class MarlinClient {
 public:
     explicit MarlinClient(MarlinTransport &transport);
     bool listFiles(std::vector<MarlinFile> &files);
+    bool deleteFile(const std::string &path);
     bool beginUpload(const std::string &filename, std::string &target);
     bool uploadLine(const std::string &line);
     bool finishUpload();

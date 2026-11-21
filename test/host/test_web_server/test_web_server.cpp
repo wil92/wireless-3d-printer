@@ -87,9 +87,10 @@ public:
         writes.push_back(command);
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
         else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
-        else if (command == "M20\n") reply = "Begin file list\nOLD.GCO 42\nEnd file list\nok\n";
+        else if (command == "M20 L\n") reply = "Begin file list\nOLD.GCO 42 Old print.gcode\nEnd file list\nok\n";
         else if (command.find("M28 ") == 0) reply = "Writing to file: NEW.GCO\nok\n";
         else if (command == "M29\n") reply = "Done saving file\nok\n";
+        else if (command == "M30 /OLD.GCO\n") reply = "File deleted: OLD.GCO\nok\n";
         for (char c : reply) incoming.push_back(c);
         return true;
     }
@@ -115,7 +116,7 @@ void testPrinterListAndRawUpload() {
     SetupConnectionClient list;
     list.setRequest("Host: localhost\r\n\r\n");
     manager.checkEndpoints(&list, "GET /api/files HTTP/1.1\r");
-    TEST_ASSERT_TRUE(list.response.find("\"name\":\"OLD.GCO\",\"size\":42") != std::string::npos);
+    TEST_ASSERT_TRUE(list.response.find("\"name\":\"Old print.gcode\",\"size\":42,\"path\":\"OLD.GCO\"") != std::string::npos);
     SetupConnectionClient upload;
     upload.setRequest("Content-Type: application/octet-stream\r\n"
                       "Content-Length: 6\r\n\r\nG1 X1\n");
@@ -123,6 +124,25 @@ void testPrinterListAndRawUpload() {
     TEST_ASSERT_TRUE(upload.response.find("200 OK") != std::string::npos);
     TEST_ASSERT_TRUE(upload.response.find("Saved as NEW.GCO") != std::string::npos);
     TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes.back().c_str());
+}
+
+void testPrinterDeleteEndpoint() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient request;
+    request.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&request, "DELETE /api/files?path=OLD.GCO HTTP/1.1\r");
+    TEST_ASSERT_TRUE(request.response.find("200 OK") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("M30 /OLD.GCO\n", transport.writes.back().c_str());
+    SetupConnectionClient invalid;
+    invalid.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&invalid, "DELETE /api/files?path=OLD%00.GCO HTTP/1.1\r");
+    TEST_ASSERT_TRUE(invalid.response.find("400 Bad Request") != std::string::npos);
 }
 
 void testPrinterBusyDoesNotStartUpload() {
@@ -598,6 +618,7 @@ int runUnitTests() {
     UNITY_BEGIN();
     RUN_TEST(testDeviceInfoIsJson);
     RUN_TEST(testPrinterListAndRawUpload);
+    RUN_TEST(testPrinterDeleteEndpoint);
     RUN_TEST(testPrinterBusyDoesNotStartUpload);
     RUN_TEST(testTruncatedUploadClosesPrinterFileAndReportsFailure);
     RUN_TEST(testUploadRejectsDuplicateContentLengthBeforePrinterAccess);

@@ -5,6 +5,7 @@
 
 #include "../scan_status.h"
 #include "../text_utils.h"
+#include "../debug_log/debug_log.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -62,7 +63,7 @@ void WebServerManager::checkForConnections() {
 }
 
 void WebServerManager::handleClient(WiFiClient &client) {
-    Serial.println("Client connected");
+    DebugLog.println("Client connected");
 
     const unsigned long connectionTime = millis();
     bool resetFlag = false;
@@ -89,7 +90,7 @@ void WebServerManager::handleClient(WiFiClient &client) {
         }
     }
 
-    Serial.println("Client disconnected");
+    DebugLog.println("Client disconnected");
     client.stop();
 
     if (resetFlag && rf) {
@@ -113,6 +114,10 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
     }
     if (message.startsWith("POST /upload?") && message.indexOf(" HTTP/") != -1) {
         handleUpload(client, message);
+        return false;
+    }
+    if (message.startsWith("DELETE /api/files?") && message.indexOf(" HTTP/") != -1) {
+        handleDelete(client, message);
         return false;
     }
     if (message.startsWith("POST /upload ") || message.startsWith("DELETE /")) {
@@ -194,6 +199,7 @@ void WebServerManager::handleFiles(WiFiClient *client) {
 
     std::vector<MarlinFile> files;
     if (!printer->listFiles(files)) {
+        DebugLog.println(String("Printer list failed: ") + printer->error().c_str());
         sendTextResponse(client, 503, String(printer->error().c_str()));
         client->stop();
         return;
@@ -201,13 +207,51 @@ void WebServerManager::handleFiles(WiFiClient *client) {
     String json = "[";
     for (size_t i = 0; i < files.size(); ++i) {
         if (i) json += ',';
-        json += "{\"name\":\"" + escapeJson(String(files[i].name.c_str())) +
-                "\",\"size\":" + String(files[i].size) + "}";
+        const String name(files[i].name.c_str());
+        const String path(files[i].path.c_str());
+        if (!isValidUtf8(name, true)) {
+            sendTextResponse(client, 503, "Printer returned an invalid UTF-8 filename.");
+            client->stop();
+            return;
+        }
+        json += "{\"name\":\"" + escapeJson(name) +
+                "\",\"size\":" + String(files[i].size) +
+                ",\"path\":\"" + escapeJson(path) + "\"}";
     }
     json += "]";
     client->print(String("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                          "Cache-Control: no-store\r\nContent-Length: ") +
                   String(json.length()) + "\r\nConnection: close\r\n\r\n" + json);
+    client->stop();
+}
+
+void WebServerManager::handleDelete(WiFiClient *client, const String &message) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         "File operations are unavailable.");
+        client->stop();
+        return;
+    }
+    String header;
+    size_t bytes = 0;
+    do {
+        if (!readHttpLine(client, header, 512) || (bytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+    const auto parameters = parseQueryParameters(message, String("DELETE /api/files?").length());
+    const auto path = parameters.find("path");
+    if (path == parameters.end() || path->second.length() != std::strlen(path->second.c_str())) {
+        sendTextResponse(client, 400, "Invalid printer file path.");
+    } else if (!printer->deleteFile(path->second.c_str())) {
+        DebugLog.println(String("Printer delete failed: ") + printer->error().c_str());
+        sendTextResponse(client, 409, String(printer->error().c_str()));
+    } else {
+        DebugLog.println("Printer file deleted");
+        sendTextResponse(client, 200, "Printer file deleted.");
+    }
     client->stop();
 }
 
@@ -284,6 +328,7 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
     }
     std::string target;
     if (!printer->beginUpload(name->second.c_str(), target)) {
+        DebugLog.println(String("Printer upload preflight failed: ") + printer->error().c_str());
         sendTextResponse(client, 409, String(printer->error().c_str()));
         client->stop();
         return;
@@ -324,8 +369,10 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
         const String reason = printer->error().empty()
                                   ? String("Upload interrupted or line too long.")
                                   : String(printer->error().c_str());
+        DebugLog.println(String("Printer upload failed: ") + reason);
         sendTextResponse(client, 503, reason + " A partial file may remain.");
     } else {
+        DebugLog.println("Printer upload completed");
         sendTextResponse(client, 200, String("Saved as ") + target.c_str());
     }
     client->stop();
@@ -336,12 +383,12 @@ void WebServerManager::startNetworkScan(WiFiClient *client) const {
     if (flashManager->isSetup) {
         sendTextResponse(client, 404, "Network scanning is only available during setup.");
     } else if (!scanComplete || !startScan) {
-        Serial.println("Network scanner unavailable");
+        DebugLog.println("Network scanner unavailable");
         sendTextResponse(client, 500, "Network scanner unavailable.");
     } else if (scanComplete() == NETWORK_SCAN_RUNNING || startScan()) {
         sendTextResponse(client, 202, "Scanning");
     } else {
-        Serial.println("Failed to start Wi-Fi scan");
+        DebugLog.println("Failed to start Wi-Fi scan");
         sendTextResponse(client, 500, "Could not start Wi-Fi scan.");
     }
 }
@@ -353,7 +400,7 @@ void WebServerManager::sendNetworks(WiFiClient *client) const {
         return;
     }
     if (!scanComplete || !scanSsid) {
-        Serial.println("Network scanner unavailable");
+        DebugLog.println("Network scanner unavailable");
         sendTextResponse(client, 500, "Network scanner unavailable.");
         return;
     }
@@ -363,7 +410,7 @@ void WebServerManager::sendNetworks(WiFiClient *client) const {
         return;
     }
     if (count < 0) {
-        Serial.println("Wi-Fi scan failed or has not been started");
+        DebugLog.println("Wi-Fi scan failed or has not been started");
         sendTextResponse(client, 500, "Wi-Fi scan failed; try again.");
         return;
     }
@@ -412,7 +459,7 @@ bool WebServerManager::handleUpdateConfig(WiFiClient *client,
     const int index = static_cast<int>(String("POST /").length()) + 1;
     if (message.indexOf("%00", index) != -1) {
         consumeIncomingData(client);
-        Serial.println("Invalid configuration");
+        DebugLog.println("Invalid configuration");
         sendTextResponse(client, 400, "Invalid configuration.");
         return false;
     }
@@ -433,7 +480,7 @@ bool WebServerManager::handleUpdateConfig(WiFiClient *client,
         flashManager->ssidNetwork = previousSsid;
         flashManager->passwordNetwork = previousPassword;
         flashManager->deviceName = previousName;
-        Serial.println(valid ? "Failed to save configuration" :
+        DebugLog.println(valid ? "Failed to save configuration" :
                                "Invalid configuration");
         sendTextResponse(client, valid ? 500 : 400,
                          valid ? "Could not save configuration." :
@@ -453,7 +500,7 @@ String WebServerManager::consumeIncomingData(WiFiClient *client) const {
         if (client->available()) {
             String line = client->readStringUntil('\n');
             if (line.length() <= 2) {
-                Serial.println("finish consuming");
+                DebugLog.println("finish consuming");
                 break;
             }
         }

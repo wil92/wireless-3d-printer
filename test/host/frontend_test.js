@@ -21,6 +21,7 @@ function element(value = "") {
         classList: { toggle(name, enabled) { this[name] = enabled; } },
         replaceChildren(...children) { this.children = children; },
         appendChild(child) { this.children.push(child); },
+        addEventListener(name, callback) { this[name] = callback; },
         querySelectorAll(selector) {
             return this.children.flatMap(child =>
                 child.tag === selector ? [child] : child.querySelectorAll(selector));
@@ -142,23 +143,25 @@ async function exercisePrinter(path) {
         };
     }
     const requests = [];
-    let reply = response(200, JSON.stringify([{name: "<unsafe>.GCO", size: 12}]));
+    let listing = response(200, JSON.stringify([{name: "<unsafe>.GCO", size: 12, path: "FILE~1.GCO"}]));
+    let reply = response(200);
     let confirmed = true;
     const context = {
         document: {
             getElementById: id => elements[id],
-            createElement: () => element(),
+            createElement: tag => Object.assign(element(), {tag}),
         },
         fetch: async (url, options) => {
             requests.push({url, options});
-            return reply;
+            return url === "/api/files" ? listing : reply;
         },
         confirm: () => confirmed,
         encodeURIComponent,
     };
     vm.runInNewContext(script[1], context);
-    await elements.refresh.click();
-    assert.equal(elements.files.children[0].textContent, "<unsafe>.GCO (12 bytes)");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests[0].url, "/api/files");
+    assert.equal(elements.files.children[0].children[0].textContent, "<unsafe>.GCO (12 bytes)");
     assert.equal(elements.refresh.disabled, false);
     const file = {name: "my print.gcode"};
     elements.gcode.files = [file];
@@ -171,6 +174,22 @@ async function exercisePrinter(path) {
     assert.equal(requests[1].url, "/upload?name=my%20print.gcode");
     assert.equal(requests[1].options.body, file);
     assert.equal(elements.message.textContent, "Saved as MY_PRINT.GCO");
+    listing = response(200, JSON.stringify([{name: "Print", size: 12, path: "FILE~1.GCO"}]));
+    await elements.refresh.click();
+    reply = response(409, "Printer busy");
+    await elements.files.children[0].children[1].click();
+    assert.equal(requests[4].url, "/api/files?path=FILE~1.GCO");
+    assert.equal(requests[4].options.method, "DELETE");
+    assert.match(elements.message.textContent, /Printer busy/);
+    confirmed = false;
+    await elements.files.children[0].children[1].click();
+    assert.equal(requests.length, 5);
+    confirmed = true;
+    reply = response(200, "Printer file deleted.");
+    listing = response(200, "[]");
+    await elements.files.children[0].children[1].click();
+    assert.equal(elements.files.children.length, 0);
+    assert.equal(elements.message.textContent, "Printer file deleted.");
     reply = response(409, "Printer busy");
     await elements.upload.submit({preventDefault() {}});
     assert.match(elements.message.textContent, /Printer busy/);

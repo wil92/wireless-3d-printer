@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "../include/hardware_pins.h"
+#include "../lib/debug_log/debug_log.h"
 #include "../lib/flash/flash_manager.h"
 #include "../lib/network/access_point_config.h"
 #include "../lib/network/network_manager.h"
@@ -22,21 +23,24 @@ void resetConfigWhenButtonPress() {
     resetButton.check(
         digitalRead(HardwarePins::resetConfig) == LOW,
         []() {
-            Serial.println("Reset configuration requested");
+            DebugLog.println("Reset configuration requested");
             if (!flashManager.resetSetup()) {
-                Serial.println("Failed to clear saved configuration");
+                DebugLog.println("Failed to clear saved configuration");
                 return false;
             }
             return true;
         },
         []() {
-            Serial.println("Restarting ESP...");
+            DebugLog.println("Restarting ESP...");
             ESP.restart();
         });
 }
 
 void setup() {
     Serial.begin(9600);
+#if defined(NETWORK_DEBUG_ADDRESS)
+    DebugLog.begin();
+#endif
 
     EEPROM.begin(CONFIG_STORAGE_SIZE);
 
@@ -59,7 +63,7 @@ void setup() {
         if (printerUsb.begin()) {
             webServer.printer = &printer;
         } else {
-            Serial.println("Printer file operations unavailable");
+            DebugLog.println("Printer file operations unavailable");
         }
         webServer.rf = []() { ESP.restart(); };
         webServer.setup();
@@ -71,7 +75,7 @@ void setup() {
         deviceId.toLowerCase();
         webServer.deviceId = "remote-sd-" + deviceId;
         if (!networkManager.startDiscovery(webServer.deviceId)) {
-            Serial.println("Device discovery unavailable; HTTP remains active");
+            DebugLog.println("Device discovery unavailable; HTTP remains active");
         }
     } else {
         if (!networkManager.createHotspot(AP_SSID, AP_PASSWORD,

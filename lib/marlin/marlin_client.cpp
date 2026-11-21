@@ -86,7 +86,8 @@ bool MarlinClient::waitOk(bool *matched, const char *expected) {
         std::string line;
         if (!readLine(line, response_timeout_ms - elapsed)) return false;
         if (expected && matched) {
-            const bool exact = startsWith(expected, "Writing to file:");
+            const bool exact = startsWith(expected, "Writing to file:") ||
+                               startsWith(expected, "File deleted:");
             if ((exact && line == expected) || (!exact && startsWith(line, expected))) {
                 *matched = true;
             }
@@ -94,7 +95,8 @@ bool MarlinClient::waitOk(bool *matched, const char *expected) {
         if (startsWith(line, "Error:") || startsWith(line, "error:") ||
             startsWith(line, "Resend:") || startsWith(line, "rs ")) {
             uncertain_ = true;
-            return fail("Printer reported an error or requested a resend.");
+            error_ = "Printer reported: " + line.substr(0, 160);
+            return false;
         }
         if (isOk(line)) {
             if (matched && !*matched) return fail("Printer did not confirm the requested operation.");
@@ -151,7 +153,8 @@ bool MarlinClient::checkIdle() {
 bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
     files.clear();
     if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
-    if (!synchronize() || !sendCommand("M20")) return false;
+    error_.clear();
+    if (!synchronize() || !sendCommand("M20 L")) return false;
     bool started = false, ended = false;
     const unsigned long start = transport_.now();
     while (true) {
@@ -171,7 +174,8 @@ bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
             return fail("Printer rejected the file list request.");
         }
         if (started && !ended) {
-            const size_t space = line.rfind(' ');
+            const size_t space = line.find(' ');
+            const size_t endSize = line.find(' ', space == std::string::npos ? 0 : space + 1);
             if (space == std::string::npos || space == 0 || space > 128 ||
                 space + 1 == line.size() ||
                 files.size() >= max_files) {
@@ -185,8 +189,9 @@ bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
                     return fail("Unsupported printer filename in file list.");
                 }
             }
-            const std::string count = line.substr(space + 1);
-            if (count.find_first_not_of("0123456789") != std::string::npos ||
+            const std::string count = line.substr(space + 1, endSize == std::string::npos
+                                                                  ? endSize : endSize - space - 1);
+            if (count.empty() || count.find_first_not_of("0123456789") != std::string::npos ||
                 count.size() > 10) {
                 uncertain_ = true;
                 return fail("Invalid printer file size.");
@@ -196,11 +201,42 @@ bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
                 uncertain_ = true;
                 return fail("Invalid printer file size.");
             }
-            files.push_back({line.substr(0, space), static_cast<uint32_t>(size)});
+            const std::string name = endSize == std::string::npos
+                                         ? line.substr(0, space)
+                                         : line.substr(endSize + 1);
+            if (name.empty() || name.size() > 512 ||
+                name.find_first_of("\r\n") != std::string::npos) {
+                uncertain_ = true;
+                return fail("Invalid printer long filename.");
+            }
+            files.push_back({name, static_cast<uint32_t>(size), line.substr(0, space)});
         }
     }
     uncertain_ = true;
     return fail("Printer file list timed out.");
+}
+
+bool MarlinClient::deleteFile(const std::string &path) {
+    error_.clear();
+    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
+    if (path.empty() || path.size() > 128 || path[0] == '/' ||
+        path.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.~/") != std::string::npos ||
+        path.find("..") != std::string::npos || path.find("//") != std::string::npos ||
+        path.back() == '/') return fail("Invalid printer file path.");
+    if (!synchronize() || !checkIdle()) return false;
+    std::vector<MarlinFile> files;
+    if (!listFiles(files)) return false;
+    bool exists = false;
+    for (const MarlinFile &file : files) {
+        if (upper(file.path) == upper(path)) { exists = true; break; }
+    }
+    if (!exists) return fail("Printer file was not found.");
+    if (!checkIdle()) return false;
+    if (!sendCommand("M30 /" + path)) return false;
+    const size_t slash = path.rfind('/');
+    const std::string expected = "File deleted: " + path.substr(slash == std::string::npos ? 0 : slash + 1);
+    bool deleted = false;
+    return waitOk(&deleted, expected.c_str());
 }
 
 bool MarlinClient::makeFilename(const std::string &input, std::string &output) {
@@ -241,7 +277,7 @@ bool MarlinClient::beginUpload(const std::string &filename, std::string &target)
     std::vector<MarlinFile> files;
     if (!listFiles(files)) return false;
     for (const MarlinFile &file : files) {
-        if (upper(file.name) == target) return fail("A printer file with this name already exists.");
+        if (upper(file.path) == target) return fail("A printer file with this name already exists.");
     }
     if (!checkIdle()) return false;
     lineNumber_ = 0;
@@ -271,8 +307,16 @@ bool MarlinClient::uploadLine(const std::string &input) {
             ch == ')' || ch == '"') return fail("Unsupported characters in G-code line.");
     }
     const std::string normalized = upper(line);
-    if (normalized[0] == 'N' || normalized.find("M110") != std::string::npos ||
-        normalized.find("M29") != std::string::npos) {
+    bool closesFile = false;
+    for (size_t pos = normalized.find("M29"); pos != std::string::npos;
+         pos = normalized.find("M29", pos + 3)) {
+        if (pos + 3 == normalized.size() || normalized[pos + 3] < '0' ||
+            normalized[pos + 3] > '9') {
+            closesFile = true;
+            break;
+        }
+    }
+    if (normalized[0] == 'N' || normalized.find("M110") != std::string::npos || closesFile) {
         return fail("G-code line contains a reserved transfer command.");
     }
     if (!numbered(line)) return false;

@@ -23,7 +23,9 @@ must keep the printer idle and must not start a job or use another host
 throughout a transfer.** In this firmware M28 opens the file by calling
 `abortFilePrintNow()`, so a race can interrupt a print.
 
-[M20](https://marlinfw.org/docs/gcode/M020.html) supplies the file list and
+[M20 L](https://marlinfw.org/docs/gcode/M020.html) supplies long display names
+when `LONG_FILENAME_HOST_SUPPORT` is enabled, as well as DOS paths for file
+operations. Builds without it return DOS names only. M20 supplies the file list and
 the preflight collision check. A complete list and acknowledgement are
 required. The firmware limits listings to 256 entries, filenames to 128
 bytes and response lines to 1024 bytes. It does not mount media automatically;
@@ -35,12 +37,19 @@ sequential `N` number and XOR checksum, waiting for `ok` before sending the
 next. Errors and resend requests stop the transfer rather than retrying.
 Semicolon comments and blank lines are discarded. Lines containing control
 characters, non-ASCII command text, quotes, parentheses, backslashes,
-checksums, existing line numbers, or the substrings `M29` or `M110` are
+checksums, existing line numbers, `M29` (except commands such as `M290`),
+or the substring `M110` are
 rejected. The entire numbered and checksummed line must fit in 94 bytes;
 some printer builds may use a smaller configured limit. The stored file is
 not byte-identical to the input. [M29](https://marlinfw.org/docs/gcode/M029.html)
 must return both the saved message and acknowledgement before success is
 reported.
+
+[M30](https://marlinfw.org/docs/gcode/M030.html) deletes a listed DOS path
+after two idle checks and requires Marlin's matching `File deleted:` message
+and acknowledgement. The operator must keep the printer idle and avoid other
+hosts throughout deletion: M30 closes the current file, and the idle check
+cannot prevent a race with a new print.
 
 Timeouts, malformed responses, unsupported lines, disconnected USB, SD write
 errors and interrupted HTTP uploads fail explicitly. When possible, an

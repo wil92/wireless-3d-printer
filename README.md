@@ -38,5 +38,6 @@ pio test -e tests -vvv
 - [Configuration reset](docs/configuration-reset.md)
 - [Network discovery and device information API](docs/discovery.md)
 - [File management and file list API](docs/file-management.md)
+- [Optional network debug logging](docs/network-logging.md)
 - [Cura plugin installation and usage](docs/cura-plugin.md)
 - [Coding rules](docs/coding-rules.md)

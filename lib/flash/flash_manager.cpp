@@ -1,4 +1,5 @@
 #include "flash_manager.h"
+#include "../debug_log/debug_log.h"
 
 #include "../text_utils.h"
 
@@ -25,7 +26,7 @@ void FlashManager::loadSetup() {
         if (validDeviceName(savedName)) {
             deviceName = savedName;
         } else {
-            Serial.println("Invalid saved device name; using default");
+            DebugLog.println("Invalid saved device name; using default");
         }
     }
 }
@@ -51,7 +52,7 @@ bool FlashManager::canSaveSetup() const {
 
 bool FlashManager::saveSetup() {
     if (!canSaveSetup()) {
-        Serial.println("Invalid configuration; not saved");
+        DebugLog.println("Invalid configuration; not saved");
         return false;
     }
     EEPROM.write(CONFIG_STATUS_ADDRESS, IS_ENABLE_WITH_NAME_FLAG);
@@ -64,7 +65,7 @@ bool FlashManager::saveSetup() {
 
 #ifdef ARDUINO_ARCH_ESP32
     if (!EEPROM.commit()) {
-        Serial.println("Failed to save configuration");
+        DebugLog.println("Failed to save configuration");
         return false;
     }
 #endif
@@ -82,12 +83,12 @@ void FlashManager::saveString(const String &value, int *index) {
 
 String FlashManager::loadString(int *index) {
     if (*index >= CONFIG_STORAGE_SIZE) {
-        Serial.println("Invalid saved configuration length");
+        DebugLog.println("Invalid saved configuration length");
         return "";
     }
     const int len = EEPROM.read((*index)++);
     if (len > CONFIG_STORAGE_SIZE - *index) {
-        Serial.println("Invalid saved configuration length");
+        DebugLog.println("Invalid saved configuration length");
         *index = CONFIG_STORAGE_SIZE;
         return "";
     }

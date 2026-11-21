@@ -29,6 +29,8 @@ During initial connection it logs status
 changes, then prints its local IP address when connected. Serial logs use 9600
 baud and do not print the saved credentials. If connection setup fails, the
 web server does not start; the reset button remains available.
+Optional local HTTP log forwarding is described in
+[network debug logging](network-logging.md).
 
 The setup page also accepts a device name, initially `Remote SD`, which is
 saved with the credentials and returned by the discovery API. The name must
@@ -91,8 +93,10 @@ Build the configured board with `pio run -e esp32dev`. Run host tests
 from the project root with `pio test -e tests`. Run the configuration-header tests with
 `python3 -m unittest discover -s test -p 'test_configuration.py'`. Host tests
 do not upload firmware.
-Run `python3 build_views.py --check` and `node test/host/frontend_test.js`
+Run `python3 -m unittest discover -s test -p 'test_debug_build_flags.py'` for
+debug-address build configuration tests.
+Run `python3 scripts/build_views.py --check` and `node test/host/frontend_test.js`
 to check generated pages and frontend interactions.
 If the pioarduino-managed Python environment cannot import `minify_html`,
 install the package in that environment as well as in the Python environment
-used to run `build_views.py` directly.
+used to run `scripts/build_views.py` directly.

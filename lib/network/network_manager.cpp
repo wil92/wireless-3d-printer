@@ -1,4 +1,5 @@
 #include "network_manager.h"
+#include "../debug_log/debug_log.h"
 
 #include <ESPmDNS.h>
 
@@ -23,25 +24,25 @@ bool WifiNetworkManager::connectToNetwork(
     const char *ssidNetwork, const char *passwordNetwork,
     const std::function<void()> &checkResetButton) {
     if (!ssidNetwork || !ssidNetwork[0] || !passwordNetwork) {
-        Serial.println("Cannot connect: Wi-Fi configuration is invalid");
+        DebugLog.println("Cannot connect: Wi-Fi configuration is invalid");
         return false;
     }
 
     if (!WiFi.setHostname("remote-sd")) {
-        Serial.println("Cannot connect: failed to set Wi-Fi hostname");
+        DebugLog.println("Cannot connect: failed to set Wi-Fi hostname");
         return false;
     }
     WiFi.persistent(false);
     if (!WiFi.mode(WIFI_STA)) {
-        Serial.println("Cannot connect: failed to enable Wi-Fi station mode");
+        DebugLog.println("Cannot connect: failed to enable Wi-Fi station mode");
         return false;
     }
     if (!WiFi.setAutoReconnect(true)) {
-        Serial.println("Cannot connect: failed to enable Wi-Fi auto-reconnect");
+        DebugLog.println("Cannot connect: failed to enable Wi-Fi auto-reconnect");
         return false;
     }
     if (WiFi.begin(ssidNetwork, passwordNetwork) == WL_CONNECT_FAILED) {
-        Serial.println("Cannot start Wi-Fi connection");
+        DebugLog.println("Cannot start Wi-Fi connection");
         return false;
     }
 
@@ -53,22 +54,21 @@ bool WifiNetworkManager::connectToNetwork(
         }
         if (static_cast<int>(status) != lastStatus) {
             lastStatus = static_cast<int>(status);
-            Serial.print("Wi-Fi connection status: ");
-            Serial.println(lastStatus);
+            DebugLog.println(String("Wi-Fi connection status: ") + String(lastStatus));
         }
         waitWithResetButtonChecks(checkResetButton);
     }
-    Serial.println("Connected. IP address: " + WiFi.localIP().toString());
+    DebugLog.println("Connected. IP address: " + WiFi.localIP().toString());
     return true;
 }
 
 bool WifiNetworkManager::startDiscovery(const String &hostname) const {
     if (!MDNS.begin(hostname)) {
-        Serial.println("Failed to start mDNS");
+        DebugLog.println("Failed to start mDNS");
         return false;
     }
     if (!MDNS.addService("remote-sd", "tcp", 80)) {
-        Serial.println("Failed to register mDNS discovery service");
+        DebugLog.println("Failed to register mDNS discovery service");
         MDNS.end();
         return false;
     }
@@ -93,7 +93,7 @@ bool WifiNetworkManager::createHotspot(
     const std::function<void()> &checkResetButton) const {
     if (!WiFi.mode(WIFI_AP_STA) ||
         !WiFi.softAPConfig(localIp_, gateway_, subnet_)) {
-        Serial.println("Failed to configure setup access point");
+        DebugLog.println("Failed to configure setup access point");
         return false;
     }
     int tries = 10;

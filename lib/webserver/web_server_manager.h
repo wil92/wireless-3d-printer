@@ -36,6 +36,8 @@ private:
 
     void handleFiles(WiFiClient *client);
 
+    void handleDelete(WiFiClient *client, const String &message);
+
     void handleUpload(WiFiClient *client, const String &message);
 
     bool readHttpLine(WiFiClient *client, String &line, size_t limit) const;

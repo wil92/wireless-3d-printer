@@ -1,4 +1,5 @@
 #include "printer_usb.h"
+#include "../debug_log/debug_log.h"
 
 #include <Arduino.h>
 
@@ -11,7 +12,7 @@ constexpr size_t receive_buffer_size = 8192;
 bool PrinterUsb::begin() {
     received_ = xQueueCreate(receive_buffer_size, sizeof(uint8_t));
     if (!received_) {
-        Serial.println("Could not allocate printer USB receive buffer");
+        DebugLog.println("Could not allocate printer USB receive buffer");
         return false;
     }
     host_.onDeviceConnected([this](const EspUsbHostDeviceInfo &device) {
@@ -21,7 +22,7 @@ bool PrinterUsb::begin() {
             failed_.store(false);
             session_.fetch_add(1);
             address_.store(device.address);
-            Serial.println("CH340 printer USB connected");
+            DebugLog.println("CH340 printer USB connected");
         }
     });
     host_.onDeviceDisconnected([this](const EspUsbHostDeviceInfo &device) {
@@ -29,7 +30,7 @@ bool PrinterUsb::begin() {
             failed_.store(true);
             address_.store(0);
             session_.fetch_add(1);
-            Serial.println("Printer USB disconnected");
+            DebugLog.println("Printer USB disconnected");
         }
     });
     host_.onSerialData([this](const EspUsbHostSerialData &data) {
@@ -42,7 +43,7 @@ bool PrinterUsb::begin() {
         }
     });
     if (!host_.setSerialBaudRate(115200) || !host_.begin()) {
-        Serial.println("Could not start printer USB host");
+        DebugLog.println("Could not start printer USB host");
         return false;
     }
     return true;
