@@ -16,6 +16,9 @@ becomes `MY_PRINT.GCO`. The upload is rejected if the printer lists an
 existing root file with that name; files are not intentionally overwritten.
 The returned name is the one to select on the printer.
 
+To compare local copies of files, see the
+[comparison script](../scripts/doc/compare.md).
+
 ## HTTP API
 
 - `GET /api/files` returns a JSON array such as

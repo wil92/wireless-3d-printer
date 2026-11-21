@@ -40,4 +40,5 @@ pio test -e tests -vvv
 - [File management and file list API](docs/file-management.md)
 - [Optional network debug logging](docs/network-logging.md)
 - [Cura plugin installation and usage](docs/cura-plugin.md)
+- [Scripts](scripts/README.md)
 - [Coding rules](docs/coding-rules.md)
