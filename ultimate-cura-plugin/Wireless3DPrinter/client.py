@@ -106,10 +106,13 @@ def discover(duration=3):
         zc.close()
 
 
-def _file_request(device, method, path, limit):
-    connection = http.client.HTTPConnection(device.address, device.port, timeout=FILE_OPERATION_TIMEOUT)
+def _file_request(device, method, path, limit, body=None, headers=None, timeout=FILE_OPERATION_TIMEOUT):
+    connection = http.client.HTTPConnection(device.address, device.port, timeout=timeout)
     try:
-        connection.request(method, path, headers={"Connection": "close"})
+        request_headers = {"Connection": "close"}
+        if headers:
+            request_headers.update(headers)
+        connection.request(method, path, body=body, headers=request_headers)
         response = connection.getresponse()
         payload = response.read(limit + 1)
         if len(payload) > limit:
@@ -138,6 +141,22 @@ def delete_file(device, path):
     if not isinstance(path, str) or not path:
         raise ValueError("Invalid printer file path")
     _file_request(device, "DELETE", "/api/files?path=" + quote(path, safe=""), 4096)
+
+
+def delete_files(device, paths):
+    if (not isinstance(paths, list) or not 1 <= len(paths) <= 256
+            or any(not isinstance(path, str) or not re.fullmatch(r"[A-Za-z0-9_.~/-]{1,128}", path)
+                   or path.startswith("/") or path.endswith("/") or ".." in path or "//" in path
+                   for path in paths)
+            or len({path.upper() for path in paths}) != len(paths)):
+        raise ValueError("Invalid printer file list")
+    body = "\n".join(paths).encode("ascii")
+    try:
+        _file_request(device, "POST", "/api/files/delete", 4096, body,
+                      {"Content-Type": "text/plain"}, FILE_OPERATION_TIMEOUT * len(paths))
+    except (OSError, http.client.HTTPException, ValueError) as error:
+        raise RuntimeError("Bulk delete response failed: {}. Some files may have been deleted; "
+                           "refresh before retrying.".format(error)) from error
 
 
 def upload(device, path, filename, progress=lambda percent: None):

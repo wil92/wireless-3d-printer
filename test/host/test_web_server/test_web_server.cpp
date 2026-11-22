@@ -1,5 +1,6 @@
 #include <ArduinoFake.h>
 #include <EEPROM.h>
+#include <algorithm>
 #include <cstring>
 #include <deque>
 #include <map>
@@ -80,6 +81,7 @@ public:
     std::vector<std::string> writes;
     unsigned long time = 0;
     bool busy = false;
+    std::string listing = "OLD.GCO 42 Old print.gcode\n";
 
     bool connected() override { return true; }
     bool write(const char *data, size_t length) override {
@@ -87,10 +89,11 @@ public:
         writes.push_back(command);
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
         else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
-        else if (command == "M20 L\n") reply = "Begin file list\nOLD.GCO 42 Old print.gcode\nEnd file list\nok\n";
+        else if (command == "M20 L\n") reply = "Begin file list\n" + listing + "End file list\nok\n";
         else if (command.find("M28 ") == 0) reply = "Writing to file: NEW.GCO\nok\n";
         else if (command == "M29\n") reply = "Done saving file\nok\n";
         else if (command == "M30 /OLD.GCO\n") reply = "File deleted: OLD.GCO\nok\n";
+        else if (command == "M30 /TWO.GCO\n") reply = "File deleted: TWO.GCO\nok\n";
         for (char c : reply) incoming.push_back(c);
         return true;
     }
@@ -146,6 +149,100 @@ void testPrinterDeleteEndpoint() {
     invalid.setRequest("Host: localhost\r\n\r\n");
     manager.checkEndpoints(&invalid, "DELETE /api/files?path=OLD%00.GCO HTTP/1.1\r");
     TEST_ASSERT_TRUE(invalid.response.find("400 Bad Request") != std::string::npos);
+}
+
+void testBulkDeleteEndpoint() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    transport.listing += "TWO.GCO 12 Two.gcode\n";
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient request;
+    const std::string body = "OLD.GCO\nTWO.GCO";
+    request.setRequest("Content-Type: text/plain\r\nContent-Length: " +
+                       std::to_string(body.size()) + "\r\n\r\n" + body);
+    manager.checkEndpoints(&request, "POST /api/files/delete HTTP/1.1\r");
+    TEST_ASSERT_TRUE(request.response.find("200 OK") != std::string::npos);
+    TEST_ASSERT_TRUE(request.response.find("Deleted 2 files.") != std::string::npos);
+    TEST_ASSERT_EQUAL(1, std::count(transport.writes.begin(), transport.writes.end(), "M30 /OLD.GCO\n"));
+    TEST_ASSERT_EQUAL(1, std::count(transport.writes.begin(), transport.writes.end(), "M30 /TWO.GCO\n"));
+
+    transport.writes.clear();
+    const std::string partial = "OLD.GCO\nMISSING.GCO\nTWO.GCO";
+    SetupConnectionClient failure;
+    failure.setRequest("Content-Type: text/plain\r\nContent-Length: " +
+                       std::to_string(partial.size()) + "\r\n\r\n" + partial);
+    manager.checkEndpoints(&failure, "POST /api/files/delete HTTP/1.1\r");
+    TEST_ASSERT_TRUE(failure.response.find("409 Conflict") != std::string::npos);
+    TEST_ASSERT_TRUE(failure.response.find("Confirmed 1 of 3 deletions. Failed at MISSING.GCO") != std::string::npos);
+    TEST_ASSERT_EQUAL(1, std::count(transport.writes.begin(), transport.writes.end(), "M30 /OLD.GCO\n"));
+    TEST_ASSERT_EQUAL(0, std::count(transport.writes.begin(), transport.writes.end(), "M30 /TWO.GCO\n"));
+}
+
+void testBulkDeleteRejectsInvalidRequestsBeforePrinterAccess() {
+    FlashManager flash;
+    flash.isSetup = true;
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    const std::vector<std::string> bodies = {
+        "", "OLD.GCO\n", "OLD.GCO\n../BAD", "OLD.GCO\nold.gco",
+        std::string("OLD.GCO\nBAD\0.GCO", 16), std::string(129, 'A'),
+        std::string("OLD.GCO\n") + std::string(129, 'A')
+    };
+    for (const std::string &body : bodies) {
+        SetupConnectionClient request;
+        request.setRequest("Content-Type: text/plain\r\nContent-Length: " +
+                           std::to_string(body.size()) + "\r\n\r\n" + body);
+        manager.checkEndpoints(&request, "POST /api/files/delete HTTP/1.1\r");
+        TEST_ASSERT_TRUE(request.response.find("400 Bad Request") != std::string::npos);
+        TEST_ASSERT_TRUE(transport.writes.empty());
+    }
+    for (const std::string &headers : {
+             "Content-Type: text/plain\r\nContent-Length: 8\r\nContent-Length: 8\r\n\r\nOLD.GCO\n",
+             "Content-Type: text/plain\r\nContent-Length: 10\r\n\r\nOLD.GCO",
+             "Content-Type: text/plain\r\nContent-Length: 33024\r\n\r\n",
+             "Content-Type: text/plain\r\nTransfer-Encoding: chunked\r\n\r\n",
+             "Content-Type: application/json\r\nContent-Length: 7\r\n\r\nOLD.GCO"}) {
+        SetupConnectionClient request;
+        request.setRequest(headers);
+        manager.checkEndpoints(&request, "POST /api/files/delete HTTP/1.1\r");
+        TEST_ASSERT_TRUE(request.response.find("400 Bad Request") != std::string::npos ||
+                         request.response.find("413 Payload Too Large") != std::string::npos);
+        TEST_ASSERT_TRUE(transport.writes.empty());
+    }
+    std::string largest;
+    for (int i = 0; i < 256; ++i) {
+        if (i) largest += '\n';
+        const std::string number = std::to_string(i);
+        largest += number + std::string(128 - number.size(), 'A');
+    }
+    TEST_ASSERT_EQUAL(33023, largest.size());
+    transport.busy = true;
+    SetupConnectionClient limit;
+    limit.setRequest("Content-Type: text/plain\r\nContent-Length: " +
+                     std::to_string(largest.size()) + "\r\n\r\n" + largest);
+    manager.checkEndpoints(&limit, "POST /api/files/delete HTTP/1.1\r");
+    TEST_ASSERT_TRUE(limit.response.find("409 Conflict") != std::string::npos);
+    TEST_ASSERT_TRUE(limit.response.find("Confirmed 0 of 256 deletions") != std::string::npos);
+
+    transport.writes.clear();
+    std::string entries;
+    for (int i = 0; i < 257; ++i) {
+        if (i) entries += '\n';
+        entries += std::to_string(i) + ".GCO";
+    }
+    SetupConnectionClient overflow;
+    overflow.setRequest("Content-Type: text/plain\r\nContent-Length: " +
+                        std::to_string(entries.size()) + "\r\n\r\n" + entries);
+    manager.checkEndpoints(&overflow, "POST /api/files/delete HTTP/1.1\r");
+    TEST_ASSERT_TRUE(overflow.response.find("400 Bad Request") != std::string::npos);
+    TEST_ASSERT_TRUE(transport.writes.empty());
 }
 
 void testPrinterBusyDoesNotStartUpload() {
@@ -223,6 +320,7 @@ void testFileOperationsAreUnavailable() {
     const char *requests[] = {
         "POST /upload HTTP/1.1\r",
         "GET /api/files HTTP/1.1\r",
+        "POST /api/files/delete HTTP/1.1\r",
         "DELETE /?file=test.gcode HTTP/1.1\r"
     };
     for (bool configured : {false, true}) {
@@ -622,6 +720,8 @@ int runUnitTests() {
     RUN_TEST(testDeviceInfoIsJson);
     RUN_TEST(testPrinterListAndRawUpload);
     RUN_TEST(testPrinterDeleteEndpoint);
+    RUN_TEST(testBulkDeleteEndpoint);
+    RUN_TEST(testBulkDeleteRejectsInvalidRequestsBeforePrinterAccess);
     RUN_TEST(testPrinterBusyDoesNotStartUpload);
     RUN_TEST(testTruncatedUploadClosesPrinterFileAndReportsFailure);
     RUN_TEST(testUploadRejectsDuplicateContentLengthBeforePrinterAccess);

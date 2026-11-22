@@ -8,10 +8,11 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
-    from PyQt6.QtCore import QObject, QPointF, QUrl, pyqtProperty, pyqtSlot
+    from PyQt6.QtCore import QObject, QPointF, QUrl, Qt, pyqtProperty, pyqtSlot
     from PyQt6.QtGui import QColor, QFont
     from PyQt6.QtQml import QQmlComponent, QQmlEngine, qmlRegisterSingletonInstance
     from PyQt6.QtQuick import QQuickWindow
+    from PyQt6.QtTest import QTest
     from PyQt6.QtWidgets import QApplication
     from Wireless3DPrinter import client, local_printer
 except ImportError:
@@ -107,13 +108,21 @@ class LocalPrinterQmlTests(unittest.TestCase):
                 file_list.property("count"), file_list.property("width"), file_list.property("height")))
             header = root.findChild(QObject, "fileTableHeader")
             headers = [item for item in header.childItems() if item.objectName() == "fileHeaderCell"]
-            self.assertEqual(len(headers), 3)
-            for header_cell, row_name in zip(headers, ("fileNameCell", "fileSizeCell", "fileActionCell")):
+            self.assertEqual(len(headers), 4)
+            for header_cell, row_name in zip(headers, ("fileSelectCell", "fileNameCell", "fileSizeCell", "fileActionCell")):
                 row_cell = find_visual(file_list, row_name)
                 self.assertIsNotNone(row_cell)
                 self.assertAlmostEqual(header_cell.mapToScene(QPointF()).x(),
                                        row_cell.mapToScene(QPointF()).x(), delta=1)
                 self.assertAlmostEqual(header_cell.property("width"), row_cell.property("width"), delta=1)
+            select_all = find_visual(headers[0], "selectAllFiles")
+            select_all.clicked.emit()
+            app.processEvents()
+            self.assertEqual(stage.selectedCount, 1)
+            self.assertTrue(root.findChild(QObject, "deleteSelected").property("visible"))
+            select_all.clicked.emit()
+            app.processEvents()
+            self.assertEqual(stage.selectedCount, 0)
             scrollbar = root.findChild(QObject, "fileScrollBar")
             handle = root.findChild(QObject, "fileScrollHandle")
             self.assertTrue(scrollbar.property("visible"))
@@ -145,6 +154,36 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertEqual(file_list.property("count"), 0)
             self.assertTrue(scrollbar.property("visible"))
             self.assertTrue(handle.property("visible"))
+        with patch.object(client, "discover", return_value=[device]), \
+                patch.object(client, "list_files", side_effect=[files + [
+                    {"name": "Second", "path": "SECOND.GCO", "size": 21}], []]), \
+                patch.object(client, "delete_files") as delete_many:
+            root.findChild(QObject, "searchPrinters").clicked.emit()
+            wait_done()
+
+            def click_item(item):
+                position = item.mapToScene(QPointF(item.property("width") / 2,
+                                                    item.property("height") / 2)).toPoint()
+                QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, position)
+                app.processEvents()
+
+            checkbox = find_visual(file_list, "selectFile")
+            click_item(checkbox)
+            self.assertEqual(stage.selectedPaths, ["SHORT.GCO"])
+            click_item(select_all)
+            self.assertEqual(stage.selectedCount, 2)
+            bulk_button = root.findChild(QObject, "deleteSelected")
+            self.assertTrue(bulk_button.property("visible"))
+            bulk_button.clicked.emit()
+            dialog = root.findChild(QObject, "bulkDeleteDialog")
+            dialog.reject()
+            self.assertEqual(stage.selectedCount, 2)
+            bulk_button.clicked.emit()
+            dialog.accept()
+            wait_done()
+            delete_many.assert_called_once_with(device, ["SECOND.GCO", "SHORT.GCO"])
+            self.assertEqual(stage.selectedCount, 0)
+            self.assertEqual(stage.files, [])
         other = client.Device("other", "Other", "127.0.0.2", 80)
         with patch.object(client, "discover", return_value=[device, other]), \
                 patch.object(client, "list_files", return_value=[]) as listing:

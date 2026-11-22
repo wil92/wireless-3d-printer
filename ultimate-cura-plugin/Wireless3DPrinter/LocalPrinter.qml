@@ -104,6 +104,15 @@ Rectangle {
             wrapMode: Text.Wrap
             Layout.fillWidth: true
         }
+        Button {
+            objectName: "deleteSelected"
+            visible: root.stage.selectedCount > 0
+            enabled: !root.stage.busy && root.stage.selectedCount > 0
+            text: "Delete selected (" + root.stage.selectedCount + ")"
+            font: UM.Theme.getFont("medium")
+            Layout.alignment: Qt.AlignHCenter
+            onClicked: bulkDeleteDialog.open()
+        }
         Rectangle {
             id: fileTable
             objectName: "printerFileTable"
@@ -118,6 +127,7 @@ Rectangle {
             property real dataWidth: Math.max(0, width - 2 - fileScrollBar.width)
             property real sizeWidth: Math.min(120, dataWidth / 3)
             property real actionWidth: Math.min(100, dataWidth / 3)
+            property real selectWidth: Math.min(48, dataWidth / 4)
 
             ColumnLayout {
                 anchors.fill: parent
@@ -130,13 +140,14 @@ Rectangle {
                     Layout.rightMargin: fileScrollBar.width
                     spacing: 0
                     Repeater {
-                        model: ["Name", "Size (bytes)", "Action"]
+                        model: ["", "Name", "Size (bytes)", "Action"]
                         Rectangle {
                             objectName: "fileHeaderCell"
-                            Layout.fillWidth: index === 0
+                            Layout.fillWidth: index === 1
                             Layout.minimumWidth: 0
-                            Layout.preferredWidth: index === 1 ? fileTable.sizeWidth : fileTable.actionWidth
-                            Layout.maximumWidth: index === 0 ? Infinity : Layout.preferredWidth
+                            Layout.preferredWidth: index === 0 ? fileTable.selectWidth :
+                                                   index === 2 ? fileTable.sizeWidth : fileTable.actionWidth
+                            Layout.maximumWidth: index === 1 ? Infinity : Layout.preferredWidth
                             implicitHeight: 36
                             color: UM.Theme.getColor("main_background")
                             border.color: UM.Theme.getColor("thick_lining")
@@ -148,8 +159,18 @@ Rectangle {
                                 verticalAlignment: Text.AlignVCenter
                                 elide: Text.ElideRight
                                 text: modelData
+                                visible: index !== 0
                                 font: UM.Theme.getFont("medium_bold")
                                 color: UM.Theme.getColor("text")
+                            }
+                            CheckBox {
+                                objectName: "selectAllFiles"
+                                anchors.centerIn: parent
+                                visible: index === 0
+                                enabled: !root.stage.busy && root.stage.files.length > 0
+                                checked: root.stage.files.length > 0 &&
+                                         root.stage.selectedCount === root.stage.files.length
+                                onClicked: root.stage.toggleSelectAll()
                             }
                         }
                     }
@@ -188,6 +209,21 @@ Rectangle {
                         width: fileTable.dataWidth
                         height: 44
                         spacing: 0
+                        Rectangle {
+                            objectName: "fileSelectCell"
+                            Layout.preferredWidth: fileTable.selectWidth
+                            Layout.fillHeight: true
+                            color: UM.Theme.getColor("main_background")
+                            border.color: UM.Theme.getColor("thick_lining")
+                            border.width: 1
+                            CheckBox {
+                                objectName: "selectFile"
+                                anchors.centerIn: parent
+                                enabled: !root.stage.busy
+                                checked: root.stage.selectedPaths.indexOf(modelData.path) !== -1
+                                onClicked: root.stage.selectFile(modelData.path, checked)
+                            }
+                        }
                         Rectangle {
                             objectName: "fileNameCell"
                             Layout.fillWidth: true
@@ -269,5 +305,21 @@ Rectangle {
             wrapMode: Text.Wrap
         }
         onAccepted: root.stage.deleteFile(filePath)
+    }
+    Dialog {
+        id: bulkDeleteDialog
+        objectName: "bulkDeleteDialog"
+        title: "Delete printer files"
+        font: UM.Theme.getFont("medium")
+        modal: true
+        implicitWidth: 450
+        anchors.centerIn: parent
+        standardButtons: Dialog.Yes | Dialog.No
+        Label {
+            text: "Delete " + root.stage.selectedCount + " selected file(s) from the printer?\nKeep the printer idle."
+            font: UM.Theme.getFont("medium")
+            wrapMode: Text.Wrap
+        }
+        onAccepted: root.stage.deleteSelected()
     }
 }

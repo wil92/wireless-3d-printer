@@ -25,9 +25,14 @@ If several are found, choose one and click **Connect**. The tab shows the
 device name and the printer's file names and sizes. Use **Refresh files** to
 reload the list; the bordered table has a visible vertical scrollbar for long
 lists. Use **Delete** and confirm to remove a file by its printer
-path. Scanning again clears the current selection. Errors appear in the tab;
-refresh after an error to obtain an up-to-date list. Keep the printer idle and
-do not start a print or another file operation during deletion.
+path. Select individual files using the first column, or use its header
+checkbox to select or deselect all, then choose **Delete selected** and
+confirm. Bulk deletion stops at the first error and may already have removed
+some files. Refresh after an error or timeout to obtain an up-to-date list
+before retrying. Refreshing, scanning again, or changing printers clears the
+selection. Errors appear in the tab. Keep the printer idle and do not start a
+print or another file operation during deletion. Bulk deletion requires updated
+firmware.
 
 The existing save button remains independent: it scans and asks for a
 destination on each upload, even if a printer is selected in the tab.

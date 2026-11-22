@@ -86,6 +86,29 @@ class LocalPrinterTests(unittest.TestCase):
         self.assertEqual(self.stage.printerName, "")
         self.assertIn("network down", self.stage.status)
 
+    def test_bulk_selection_delete_and_partial_error(self):
+        files = self.files + [{"name": "Other", "path": "OTHER.GCO", "size": 1}]
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "list_files", return_value=files), \
+                patch.object(client, "delete_files", side_effect=RuntimeError("Confirmed 1 of 2 deletions")) as delete:
+            self.stage.search()
+            self.wait_done()
+            self.stage.selectFile("unlisted", True)
+            self.assertEqual(self.stage.selectedCount, 0)
+            self.stage.selectFile("LONG.GCO", True)
+            self.assertEqual(self.stage.selectedPaths, ["LONG.GCO"])
+            self.stage.toggleSelectAll()
+            self.assertEqual(self.stage.selectedCount, 2)
+            self.stage.toggleSelectAll()
+            self.assertEqual(self.stage.selectedCount, 0)
+            self.stage.toggleSelectAll()
+            self.stage.deleteSelected()
+            self.wait_done()
+            delete.assert_called_once_with(self.one, ["LONG.GCO", "OTHER.GCO"])
+            self.assertEqual(self.stage.files, [])
+            self.assertEqual(self.stage.selectedCount, 0)
+            self.assertIn("Confirmed 1 of 2 deletions", self.stage.status)
+
     def test_empty_discovery_and_list_failure(self):
         with patch.object(client, "discover", return_value=[]):
             self.stage.search()

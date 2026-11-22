@@ -37,6 +37,7 @@ public:
     bool uploading() const { return uploading_; }
 
     static bool makeFilename(const std::string &input, std::string &output);
+    static bool validFilePath(const std::string &path);
 
 private:
     bool readLine(std::string &line, unsigned long timeoutMs);

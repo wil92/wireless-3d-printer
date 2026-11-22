@@ -9,6 +9,8 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
+#include <cctype>
 
 namespace {
 String escapeJson(const String &value) {
@@ -118,6 +120,10 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
     }
     if (message.startsWith("DELETE /api/files?") && message.indexOf(" HTTP/") != -1) {
         handleDelete(client, message);
+        return false;
+    }
+    if (message.startsWith("POST /api/files/delete HTTP/")) {
+        handleBulkDelete(client);
         return false;
     }
     if (message.startsWith("POST /upload ") || message.startsWith("DELETE /")) {
@@ -252,6 +258,139 @@ void WebServerManager::handleDelete(WiFiClient *client, const String &message) {
         DebugLog.println("Printer file deleted");
         sendTextResponse(client, 200, "Printer file deleted.");
     }
+    client->stop();
+}
+
+void WebServerManager::handleBulkDelete(WiFiClient *client) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         "File operations are unavailable.");
+        client->stop();
+        return;
+    }
+    size_t length = 0, headerBytes = 0;
+    bool hasLength = false, hasType = false;
+    String header;
+    do {
+        if (!readHttpLine(client, header, 512) || (headerBytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+        const int colon = header.indexOf(':');
+        if (colon < 0) {
+            if (!header.length()) continue;
+            sendTextResponse(client, 400, "Invalid request header.");
+            client->stop();
+            return;
+        }
+        String key = header.substring(0, colon);
+        key.toLowerCase();
+        String value = header.substring(colon + 1);
+        value.trim();
+        if (key == "content-length") {
+            if (hasLength || !value.length() || value.length() > 5) {
+                sendTextResponse(client, 400, "Invalid content length.");
+                client->stop();
+                return;
+            }
+            for (unsigned int i = 0; i < value.length(); ++i) {
+                if (value[i] < '0' || value[i] > '9') {
+                    sendTextResponse(client, 400, "Invalid content length.");
+                    client->stop();
+                    return;
+                }
+                length = length * 10 + value[i] - '0';
+            }
+            hasLength = true;
+        } else if (key == "content-type") {
+            if (hasType) {
+                sendTextResponse(client, 400, "Duplicate content type.");
+                client->stop();
+                return;
+            }
+            value.toLowerCase();
+            hasType = value == "text/plain";
+            if (!hasType) {
+                sendTextResponse(client, 400, "Invalid content type.");
+                client->stop();
+                return;
+            }
+        } else if (key == "transfer-encoding") {
+            sendTextResponse(client, 400, "Transfer encoding is not supported.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+
+    if (!hasLength || !hasType || !length || length > 33023) {
+        sendTextResponse(client, length > 33023 ? 413 : 400,
+                         "A nonempty bounded text file list is required.");
+        client->stop();
+        return;
+    }
+    std::vector<std::string> paths;
+    std::string path;
+    unsigned long lastByte = millis();
+    for (size_t received = 0; received < length;) {
+        if (!client->connected() || millis() - lastByte >= CLIENT_TIMEOUT) {
+            sendTextResponse(client, 400, "Incomplete file list.");
+            client->stop();
+            return;
+        }
+        if (!client->available()) {
+            delay(1);
+            continue;
+        }
+        const int c = client->read();
+        if (c < 0) continue;
+        ++received;
+        if ((received & 1023) == 0) delay(0);
+        lastByte = millis();
+        if (c != '\n') {
+            path += static_cast<char>(c);
+            if (path.size() <= 128) continue;
+        }
+        if (c != '\n' || !MarlinClient::validFilePath(path) || paths.size() >= 256) {
+            sendTextResponse(client, 400, "Invalid printer file list.");
+            client->stop();
+            return;
+        }
+        paths.push_back(path);
+        path.clear();
+    }
+    if (!MarlinClient::validFilePath(path) || paths.size() >= 256) {
+        sendTextResponse(client, 400, "Invalid printer file list.");
+        client->stop();
+        return;
+    }
+    paths.push_back(path);
+    for (size_t i = 0; i < paths.size(); ++i) {
+        for (size_t j = 0; j < i; ++j) {
+            if (paths[i].size() == paths[j].size() &&
+                std::equal(paths[i].begin(), paths[i].end(), paths[j].begin(),
+                           [](unsigned char a, unsigned char b) {
+                               return std::toupper(a) == std::toupper(b);
+                           })) {
+                sendTextResponse(client, 400, "Duplicate printer file path.");
+                client->stop();
+                return;
+            }
+        }
+    }
+    for (size_t i = 0; i < paths.size(); ++i) {
+        if (!printer->deleteFile(paths[i])) {
+            const String reason = String("Confirmed ") + String(static_cast<unsigned int>(i)) +
+                                  " of " + String(static_cast<unsigned int>(paths.size())) +
+                                  " deletions. Failed at " + paths[i].c_str() + ": " +
+                                  printer->error().c_str() + " The failed file may also have been deleted; refresh before retrying.";
+            DebugLog.println(String("Printer bulk delete failed: ") + reason);
+            sendTextResponse(client, 409, reason);
+            client->stop();
+            return;
+        }
+    }
+    sendTextResponse(client, 200, String("Deleted ") + String(static_cast<unsigned int>(paths.size())) + " files.");
     client->stop();
 }
 

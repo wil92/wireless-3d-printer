@@ -19,6 +19,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     files = []
     file_status = 200
     deletes = []
+    bulk_deletes = []
 
     def log_message(self, *args):
         pass
@@ -42,6 +43,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         data = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path == "/api/files/delete":
+            self.bulk_deletes.append((self.headers, data))
+            self.send_response(self.file_status)
+            self.end_headers()
+            self.wfile.write(b"Confirmed 1 of 2 deletions. Failed at TWO.GCO: printer busy"
+                             if self.file_status != 200 else b"deleted")
+            return
         self.uploads.append((self.path, self.headers, data))
         self.send_response(self.status)
         self.end_headers()
@@ -73,6 +81,7 @@ class ClientTests(unittest.TestCase):
         Handler.files = []
         Handler.file_status = 200
         Handler.deletes = []
+        Handler.bulk_deletes = []
         self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
 
     def test_filename_is_safe_and_has_one_extension(self):
@@ -152,6 +161,21 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.list_files(self.device), Handler.files)
         client.delete_file(self.device, Handler.files[0]["path"])
         self.assertEqual(Handler.deletes, ["/api/files?path=DIR%2FA%20B.GCO"])
+
+    def test_bulk_delete_sends_paths_and_reports_partial_failure(self):
+        client.delete_files(self.device, ["DIR/ONE.GCO", "TWO.GCO"])
+        headers, body = Handler.bulk_deletes[0]
+        self.assertEqual(headers["Content-Type"], "text/plain")
+        self.assertEqual(body, b"DIR/ONE.GCO\nTWO.GCO")
+        Handler.file_status = 409
+        with self.assertRaisesRegex(RuntimeError, "Confirmed 1 of 2.*TWO.GCO"):
+            client.delete_files(self.device, ["ONE.GCO", "TWO.GCO"])
+        for paths in ([], ["A", "a"], ["../A"], ["A\nB"], ["A/"], ["é"], ["A"] * 257):
+            with self.subTest(paths=paths), self.assertRaises(ValueError):
+                client.delete_files(self.device, paths)
+        with patch.object(client, "_file_request", side_effect=TimeoutError("timed out")):
+            with self.assertRaisesRegex(RuntimeError, "may have been deleted; refresh"):
+                client.delete_files(self.device, ["ONE.GCO", "TWO.GCO"])
 
     def test_file_operation_errors_and_invalid_lists(self):
         Handler.file_status = 503

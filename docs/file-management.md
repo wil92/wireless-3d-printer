@@ -35,6 +35,18 @@ To compare local copies of files, see the
 - `DELETE /api/files?path=<url-encoded-DOS-path>` deletes a listed file using
   Marlin M30. The printer must report idle and confirm the exact deletion.
   Read-only media, unsupported commands and missing confirmations fail.
+- `POST /api/files/delete` deletes 1–256 files in order. Send a raw
+  `text/plain` body with `Content-Length` containing DOS paths separated by
+  LF (no trailing LF), for example `ONE.GCO\nDIR/TWO.GCO`. The body is limited
+  to 33,023 bytes; each path is at most 128 ASCII characters and must satisfy
+  the same path rules as single-file deletion. Duplicate paths, ignoring case,
+  are rejected before any deletion. Chunked encoding is not supported.
+  Each deletion independently checks the printer's idle status and listing.
+  The operation stops on the first failure with HTTP 409 and a message naming
+  the failed path and the number confirmed deleted; deletions are not atomic.
+  The failed file may also have been deleted if confirmation was lost.
+  A connection loss or timeout can also leave an unknown partial result. Refresh
+  the file list before retrying.
 
 Operations return HTTP 404 in setup mode, HTTP 409 for upload preflight
 failures (including a disconnected printer) and delete failures, and HTTP 503 for file-list or

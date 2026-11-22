@@ -297,13 +297,17 @@ bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
     return fail("Printer file list timed out.");
 }
 
+bool MarlinClient::validFilePath(const std::string &path) {
+    return !path.empty() && path.size() <= 128 && path[0] != '/' &&
+           path.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.~/") == std::string::npos &&
+           path.find("..") == std::string::npos && path.find("//") == std::string::npos &&
+           path.back() != '/';
+}
+
 bool MarlinClient::deleteFile(const std::string &path) {
     error_.clear();
     if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
-    if (path.empty() || path.size() > 128 || path[0] == '/' ||
-        path.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.~/") != std::string::npos ||
-        path.find("..") != std::string::npos || path.find("//") != std::string::npos ||
-        path.back() == '/') return fail("Invalid printer file path.");
+    if (!validFilePath(path)) return fail("Invalid printer file path.");
     if (!synchronize() || !checkIdle()) return false;
     std::vector<MarlinFile> files;
     if (!listFiles(files)) return false;

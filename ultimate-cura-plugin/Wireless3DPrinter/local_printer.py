@@ -13,6 +13,7 @@ from . import client
 class LocalPrinterStage(CuraStage):
     changed = pyqtSignal()
     devicesChanged = pyqtSignal()
+    selectionChanged = pyqtSignal()
     _completed = pyqtSignal(str, object, object)
 
     def __init__(self):
@@ -20,6 +21,7 @@ class LocalPrinterStage(CuraStage):
         self._devices = []
         self._device = None
         self._files = []
+        self._selected = set()
         self._busy = False
         self._status = "Search for a printer on the local network."
         self._completed.connect(self._on_completed)
@@ -35,6 +37,39 @@ class LocalPrinterStage(CuraStage):
     @pyqtProperty("QVariantList", notify=changed)
     def files(self):
         return self._files
+
+    @pyqtProperty("QVariantList", notify=selectionChanged)
+    def selectedPaths(self):
+        return sorted(self._selected)
+
+    @pyqtProperty(int, notify=selectionChanged)
+    def selectedCount(self):
+        return len(self._selected)
+
+    def _clear_selection(self):
+        if self._selected:
+            self._selected.clear()
+            self.selectionChanged.emit()
+
+    @pyqtSlot(str, bool)
+    def selectFile(self, path, selected):
+        if self._busy or not any(f["path"] == path for f in self._files):
+            return
+        if selected:
+            self._selected.add(path)
+        else:
+            self._selected.discard(path)
+        self.selectionChanged.emit()
+
+    @pyqtSlot()
+    def toggleSelectAll(self):
+        if self._busy or not self._files:
+            return
+        if len(self._selected) == len(self._files):
+            self._selected.clear()
+        else:
+            self._selected = {f["path"] for f in self._files}
+        self.selectionChanged.emit()
 
     @pyqtProperty(str, notify=changed)
     def printerName(self):
@@ -71,6 +106,7 @@ class LocalPrinterStage(CuraStage):
         self.devicesChanged.emit()
         self._device = None
         self._files = []
+        self._clear_selection()
         self._start("search", "Searching for printers...", client.discover)
 
     @pyqtSlot(int)
@@ -79,11 +115,13 @@ class LocalPrinterStage(CuraStage):
             return
         self._device = self._devices[index]
         self._files = []
+        self._clear_selection()
         self.refresh()
 
     @pyqtSlot()
     def refresh(self):
         if not self._busy and self._device:
+            self._clear_selection()
             self._start("list", "Loading printer files...", client.list_files, self._device)
 
     @pyqtSlot(str)
@@ -92,12 +130,21 @@ class LocalPrinterStage(CuraStage):
             return
         self._start("delete", "Deleting printer file...", client.delete_file, self._device, path)
 
+    @pyqtSlot()
+    def deleteSelected(self):
+        paths = sorted(self._selected)
+        if (self._busy or not self._device or not paths
+                or not set(paths).issubset({f["path"] for f in self._files})):
+            return
+        self._start("delete", "Deleting printer files...", client.delete_files, self._device, paths)
+
     @pyqtSlot(str, object, object)
     def _on_completed(self, operation, result, error):
         self._busy = False
         if error:
             if operation in ("list", "delete"):
                 self._files = []
+                self._clear_selection()
             self._status = "{} failed: {}".format(
                 {"search": "Search", "list": "Loading files", "delete": "Delete"}[operation], error)
         elif operation == "search":
