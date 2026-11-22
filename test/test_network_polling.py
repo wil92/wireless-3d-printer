@@ -17,12 +17,22 @@ class NetworkPollingTest(unittest.TestCase):
             for name in ("network_manager.cpp", "network_manager.h"):
                 shutil.copyfile(ROOT / "lib/network" / name, network / name)
             shutil.copyfile(ROOT / "lib/scan_status.h", root / "scan_status.h")
+            (root / "debug_log").mkdir()
+            (root / "debug_log/debug_log.h").write_text(
+                '#include <WiFi.h>\n#define DebugLog Serial\n'
+            )
 
             (root / "WiFi.h").write_text("""
                 #pragma once
                 #include <string>
                 #include <vector>
-                using String = std::string;
+                class String : public std::string {
+                public:
+                    using std::string::string;
+                    using std::string::operator=;
+                    String(const std::string &value) : std::string(value) {}
+                    String(int value) : std::string(std::to_string(value)) {}
+                };
                 enum wl_status_t {
                     WL_IDLE_STATUS = 0,
                     WL_CONNECTED = 3,
@@ -165,7 +175,7 @@ class NetworkPollingTest(unittest.TestCase):
                                                     }));
                     assert(polls == 20 && delayCalls == 20);
                     assert(!WiFi.persistentValue && WiFi.modeValue == WIFI_STA);
-                    assert(WiFi.hostname == "remote-sd");
+                    assert(WiFi.hostname == "wireless-3d-printer");
                     assert(WiFi.beginCalls == 1 && WiFi.statusCalls == 3);
                     assert(WiFi.ssid == "ssid" && WiFi.password == "password");
                     assert(WiFi.calls == std::vector<String>({
@@ -236,9 +246,9 @@ class NetworkPollingTest(unittest.TestCase):
                     assert(manager.scanSsid(0) == "network");
                     WiFi.scanResult = -2;
                     assert(!manager.startScan() && WiFi.scanDeleteCalls == 2);
-                    assert(manager.startDiscovery("remote-sd-001122334455"));
-                    assert(MDNS.hostname == "remote-sd-001122334455");
-                    assert(MDNS.service == "remote-sd");
+                    assert(manager.startDiscovery("wireless-3d-printer-001122334455"));
+                    assert(MDNS.hostname == "wireless-3d-printer-001122334455");
+                    assert(MDNS.service == "wireless-3dp");
                     assert(MDNS.protocol == "tcp" && MDNS.port == 80);
                     MDNS.beginResult = false;
                     MDNS.service = "";

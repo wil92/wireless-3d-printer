@@ -205,14 +205,14 @@ void testDeviceInfoIsJson() {
     FlashManager flash;
     flash.isSetup = true;
     manager.flashManager = &flash;
-    manager.deviceId = "remote-sd-001122334455";
+    manager.deviceId = "wireless-3d-printer-001122334455";
 
     TEST_ASSERT_FALSE(manager.checkEndpoints(&client, "GET /api/device HTTP/1.1\r"));
     TEST_ASSERT_EQUAL_STRING(
         "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
         "Cache-Control: no-store\r\nConnection: close\r\n\r\n"
-        "{\"type\":\"remote-sd\",\"id\":\"remote-sd-001122334455\","
-        "\"name\":\"Remote SD\",\"api_version\":1}",
+        "{\"type\":\"wireless-3d-printer\",\"id\":\"wireless-3d-printer-001122334455\","
+        "\"name\":\"wireless-3d-printer\",\"api_version\":1}",
         client.response.c_str());
 }
 
@@ -258,7 +258,7 @@ void testSetupSavesNameAndEndpointReturnsIt() {
     FlashManager flash;
     WebServerManager manager;
     manager.flashManager = &flash;
-    manager.deviceId = "remote-sd-001122334455";
+    manager.deviceId = "wireless-3d-printer-001122334455";
     WiFiClientTmp setupClient;
     setupClient.buildHeaders();
     TEST_ASSERT_TRUE(manager.checkEndpoints(
@@ -367,7 +367,7 @@ void testSetupRejectsInvalidNameWithoutSavingOrRestarting() {
     TEST_ASSERT_FALSE(manager.checkEndpoints(
         &client, "POST /?ssid=net&name= HTTP/1.1\r"));
     TEST_ASSERT_TRUE(client.response.find("400 Bad Request") != std::string::npos);
-    TEST_ASSERT_EQUAL_STRING("Remote SD", flash.deviceName.c_str());
+    TEST_ASSERT_EQUAL_STRING("wireless-3d-printer", flash.deviceName.c_str());
     TEST_ASSERT_EQUAL_STRING(NETWORK_SSID, flash.ssidNetwork.c_str());
     TEST_ASSERT_EQUAL_UINT8(0xff, eepromData[CONFIG_STATUS_ADDRESS]);
 
@@ -395,7 +395,7 @@ void testSetupPageEscapesNameAndDisplaysDefault() {
     WiFiClientTmp defaultClient;
     defaultClient.buildHeaders();
     manager.checkEndpoints(&defaultClient, "GET / HTTP/1.1\r");
-    TEST_ASSERT_TRUE(defaultClient.response.find("value=\"Remote SD\"") !=
+    TEST_ASSERT_TRUE(defaultClient.response.find("value=\"wireless-3d-printer\"") !=
                      std::string::npos);
 
     flash.deviceName = "A \"<&' $$SSID$$";
@@ -416,7 +416,7 @@ void testDeviceInfoUnavailableInSetupMode() {
 
     TEST_ASSERT_FALSE(manager.checkEndpoints(&client, "GET /api/device HTTP/1.1\r"));
     TEST_ASSERT_TRUE(client.response.find("404 Not Found") != std::string::npos);
-    TEST_ASSERT_TRUE(client.response.find("remote-sd") == std::string::npos);
+    TEST_ASSERT_TRUE(client.response.find("\"type\":\"wireless-3d-printer\"") == std::string::npos);
 }
 
 void testOtherGetPathsStillServeWebsite() {

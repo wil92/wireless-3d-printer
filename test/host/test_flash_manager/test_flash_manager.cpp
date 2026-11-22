@@ -17,7 +17,7 @@ void testInitialCredentialsMatchNetworkConfiguration() {
     TEST_ASSERT_EQUAL_STRING(NETWORK_SSID, flashManager.ssidNetwork.c_str());
     TEST_ASSERT_EQUAL_STRING(NETWORK_PASSWORD,
                              flashManager.passwordNetwork.c_str());
-    TEST_ASSERT_EQUAL_STRING("Remote SD", flashManager.deviceName.c_str());
+    TEST_ASSERT_EQUAL_STRING("wireless-3d-printer", flashManager.deviceName.c_str());
 }
 
 void testLoadSetupClearsSetupStateWhenFlagIsNotSet() {
@@ -43,7 +43,7 @@ void testLoadSetupRestoresSavedCredentialsWhenFlagIsSet() {
     TEST_ASSERT_TRUE(flashManager.isSetup);
     TEST_ASSERT_EQUAL_STRING("net", flashManager.ssidNetwork.c_str());
     TEST_ASSERT_EQUAL_STRING("pwd", flashManager.passwordNetwork.c_str());
-    TEST_ASSERT_EQUAL_STRING("Remote SD", flashManager.deviceName.c_str());
+    TEST_ASSERT_EQUAL_STRING("wireless-3d-printer", flashManager.deviceName.c_str());
     TEST_ASSERT_TRUE(serialMessages.empty());
 }
 

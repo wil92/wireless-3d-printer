@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 try:
     from PyQt6.QtWidgets import QApplication, QMessageBox
-    from RemoteSD import output_device
+    from Wireless3DPrinter import output_device
 except ImportError:
     output_device = None
 
@@ -47,7 +47,7 @@ class OutputDeviceTests(unittest.TestCase):
         self.messages = patch.object(output_device, "Message", FakeMessage)
         self.messages.start()
         self.addCleanup(self.messages.stop)
-        self.output = output_device.RemoteSDOutputDevice()
+        self.output = output_device.Wireless3DPrinterOutputDevice()
 
     def wait_done(self):
         deadline = time.monotonic() + 5
@@ -67,19 +67,19 @@ class OutputDeviceTests(unittest.TestCase):
         application = unittest.mock.Mock()
         application.getOutputDeviceManager.return_value = manager
         with patch("UM.OutputDevice.OutputDevicePlugin.Application.getInstance", return_value=application):
-            plugin = output_device.RemoteSDPlugin()
+            plugin = output_device.Wireless3DPrinterPlugin()
             plugin.start()
             registered = manager.addOutputDevice.call_args.args[0]
-            self.assertEqual(registered.getShortDescription(), "Save to Remote-SD")
-            self.assertEqual(registered.getDescription(), "Save to Remote-SD")
+            self.assertEqual(registered.getShortDescription(), "Save to wireless-3d-printer")
+            self.assertEqual(registered.getDescription(), "Save to wireless-3d-printer")
             plugin.stop()
-        manager.removeOutputDevice.assert_called_once_with("remote_sd")
+        manager.removeOutputDevice.assert_called_once_with("wireless_3d_printer")
 
     def test_no_devices_is_visible(self):
         with patch.object(output_device.client, "discover", return_value=[]):
             self.output.requestWrite([], "part")
             self.wait_done()
-        self.assertIn("No Remote SD devices found", FakeMessage.messages[-1].text)
+        self.assertIn("No wireless-3d-printer devices found", FakeMessage.messages[-1].text)
 
     def test_confirmation_cancel_does_not_write(self):
         device = output_device.client.Device("id", "Printer", "127.0.0.1", 80)

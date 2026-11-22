@@ -78,7 +78,7 @@ void setup() {
         String deviceId = WiFi.macAddress();
         deviceId.replace(":", "");
         deviceId.toLowerCase();
-        webServer.deviceId = "remote-sd-" + deviceId;
+        webServer.deviceId = "wireless-3d-printer-" + deviceId;
         if (!networkManager.startDiscovery(webServer.deviceId)) {
             DebugLog.println("Device discovery unavailable; HTTP remains active");
         }

@@ -1,4 +1,4 @@
 #pragma once
 
-#define AP_SSID "RemoteSDDevice"
-#define AP_PASSWORD "remotesd"
+#define AP_SSID "Wireless3DPrinter"
+#define AP_PASSWORD "wireless3dprinter"

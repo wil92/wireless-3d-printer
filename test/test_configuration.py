@@ -63,8 +63,11 @@ class ConfigurationHeadersTest(unittest.TestCase):
     def test_access_point_example_and_local_override(self):
         header = '#include "lib/network/access_point_config.h"\n'
         self.compile(header + """
-            static_assert(AP_SSID[0] == 'R', "example SSID");
-            static_assert(AP_PASSWORD[0] == 'r', "example password");
+            constexpr bool same(const char *a, const char *b) {
+                return *a == *b && (*a == '\\0' || same(a + 1, b + 1));
+            }
+            static_assert(same(AP_SSID, "Wireless3DPrinter"), "example SSID");
+            static_assert(same(AP_PASSWORD, "wireless3dprinter"), "example password");
         """)
         (self.root / "include/access_point_config.h").write_text(
             '#define AP_SSID "local access point"\n'

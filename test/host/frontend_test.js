@@ -42,7 +42,7 @@ async function exercise(path) {
         scan_status: element(),
         ssid: element("my network"),
         password: element("p&ss"),
-        name: element("Remote SD"),
+        name: element("wireless-3d-printer"),
         status: element(),
     };
     const requests = [];
@@ -203,6 +203,9 @@ async function exercisePrinter(path) {
     await exercisePrinter("lib/webserver/views/status.index.h");
     const setup = fs.readFileSync("lib/webserver/views/server-config.index.h", "utf8");
     const status = fs.readFileSync("lib/webserver/views/status.index.h", "utf8");
+    assert.match(setup, /<title>wireless-3d-printer configuration<\/title>/);
+    assert.match(status, /<title>wireless-3d-printer<\/title>/);
+    assert.match(status, /<h1>wireless-3d-printer<\/h1>/);
     assert.equal(setup.match(/<style>([\s\S]*?)<\/style>/)[1],
                  status.match(/<style>([\s\S]*?)<\/style>/)[1]);
     console.log("Frontend tests passed");

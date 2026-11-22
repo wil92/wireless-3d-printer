@@ -25,7 +25,7 @@ async function stop(child) {
 }
 
 test("writes POST messages and creates a new file on restart", async t => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "remote-sd-logs-"));
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "wireless-3d-printer-logs-"));
     t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
     const first = await start(directory);
     try {

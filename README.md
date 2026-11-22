@@ -1,4 +1,4 @@
-# Remote SD
+# wireless-3d-printer
 
 This project provides Wi-Fi configuration and network discovery for an
 ESP32-S3. It connects to a Marlin printer through native USB host mode to list
@@ -19,8 +19,8 @@ and transfer G-code to the printer's SD card.
 
 ## Installation
 
-1. Clone this repository to your local machine: `git clone`
-2. Navigate to the project directory: `cd remote-sd-card-access`
+1. Clone this repository to your local machine: `git clone <repository-url> wireless-3d-printer`
+2. Navigate to the project directory: `cd wireless-3d-printer`
 3. Install html minifier: `sudo pip install minify_html`
 
 ## Testing

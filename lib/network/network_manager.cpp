@@ -28,7 +28,7 @@ bool WifiNetworkManager::connectToNetwork(
         return false;
     }
 
-    if (!WiFi.setHostname("remote-sd")) {
+    if (!WiFi.setHostname("wireless-3d-printer")) {
         DebugLog.println("Cannot connect: failed to set Wi-Fi hostname");
         return false;
     }
@@ -67,7 +67,7 @@ bool WifiNetworkManager::startDiscovery(const String &hostname) const {
         DebugLog.println("Failed to start mDNS");
         return false;
     }
-    if (!MDNS.addService("remote-sd", "tcp", 80)) {
+    if (!MDNS.addService("wireless-3dp", "tcp", 80)) {
         DebugLog.println("Failed to register mDNS discovery service");
         MDNS.end();
         return false;

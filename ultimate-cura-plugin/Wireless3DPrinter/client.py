@@ -10,7 +10,7 @@ import time
 from urllib.parse import quote
 from dataclasses import dataclass
 
-SERVICE = "_remote-sd._tcp.local."
+SERVICE = "_wireless-3dp._tcp.local."
 CONNECT_TIMEOUT = 5
 UPLOAD_TIMEOUT = 600
 
@@ -46,7 +46,7 @@ def device_at(address, port, timeout=CONNECT_TIMEOUT):
         if len(payload) > 16384:
             raise ValueError("Device information is too large")
         data = json.loads(payload)
-        if (not isinstance(data, dict) or data.get("type") != "remote-sd"
+        if (not isinstance(data, dict) or data.get("type") != "wireless-3d-printer"
                 or data.get("api_version") != 1
                 or not isinstance(data.get("id"), str) or not data["id"]
                 or not isinstance(data.get("name"), str) or not data["name"]):

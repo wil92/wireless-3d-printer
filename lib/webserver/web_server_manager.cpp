@@ -479,7 +479,7 @@ void WebServerManager::handleDeviceInfo(WiFiClient *client) const {
                   "Content-Type: application/json\r\n"
                   "Cache-Control: no-store\r\n"
                   "Connection: close\r\n\r\n");
-    client->print("{\"type\":\"remote-sd\",\"id\":\"" + deviceId +
+    client->print("{\"type\":\"wireless-3d-printer\",\"id\":\"" + deviceId +
                   "\",\"name\":\"" + escapeJson(flashManager->deviceName) +
                   "\",\"api_version\":1}");
 }

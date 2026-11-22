@@ -13,9 +13,9 @@ ROOT = Path(__file__).resolve().parent
 
 def build(output):
     output = Path(output).resolve()
-    with tempfile.TemporaryDirectory(prefix="remote-sd-cura-") as temp:
-        stage = Path(temp) / "RemoteSD"
-        shutil.copytree(ROOT / "RemoteSD", stage, ignore=shutil.ignore_patterns(
+    with tempfile.TemporaryDirectory(prefix="wireless-3d-printer-cura-") as temp:
+        stage = Path(temp) / "Wireless3DPrinter"
+        shutil.copytree(ROOT / "Wireless3DPrinter", stage, ignore=shutil.ignore_patterns(
             "__pycache__", "*.pyc", "vendor"))
         subprocess.run([sys.executable, "-m", "pip", "install", "--disable-pip-version-check",
                         "--target", str(stage / "vendor"),
@@ -30,5 +30,5 @@ def build(output):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", default=str(ROOT / "dist" / "RemoteSD.zip"))
+    parser.add_argument("--output", default=str(ROOT / "dist" / "Wireless3DPrinter.zip"))
     build(parser.parse_args().output)

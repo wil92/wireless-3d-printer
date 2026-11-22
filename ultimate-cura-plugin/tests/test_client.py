@@ -9,12 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from RemoteSD import client
+from Wireless3DPrinter import client
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     status = 204
-    info = {"type": "remote-sd", "id": "remote-sd-123", "name": "Workshop", "api_version": 1}
+    info = {"type": "wireless-3d-printer", "id": "wireless-3d-printer-123", "name": "Workshop", "api_version": 1}
     uploads = []
 
     def log_message(self, *args):
@@ -52,9 +52,9 @@ class ClientTests(unittest.TestCase):
 
     def setUp(self):
         Handler.status = 204
-        Handler.info = {"type": "remote-sd", "id": "remote-sd-123", "name": "Workshop", "api_version": 1}
+        Handler.info = {"type": "wireless-3d-printer", "id": "wireless-3d-printer-123", "name": "Workshop", "api_version": 1}
         Handler.uploads = []
-        self.device = client.Device("remote-sd-123", "Workshop", "127.0.0.1", self.server.server_port)
+        self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
 
     def test_filename_is_safe_and_has_one_extension(self):
         self.assertEqual(client.safe_filename("../../bad\"\r\nname.GCODE"), "bad___name.gcode")
@@ -118,7 +118,7 @@ class ClientTests(unittest.TestCase):
         module = types.SimpleNamespace(Zeroconf=lambda: zc, ServiceBrowser=FakeBrowser)
         with patch.dict(sys.modules, {"zeroconf": module}):
             self.assertEqual(client.discover(0), [device])
-        self.assertEqual(zc.service, client.SERVICE)
+        self.assertEqual(zc.service, "_wireless-3dp._tcp.local.")
         self.assertTrue(zc.closed)
 
     def test_discovery_rejects_unrelated_or_unreachable_devices(self):

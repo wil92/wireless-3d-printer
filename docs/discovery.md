@@ -1,17 +1,23 @@
 # Network discovery
 
 After a configured device connects to its Wi-Fi network, it advertises the
-DNS-SD service `_remote-sd._tcp.local.` over mDNS on TCP port 80. The setup
-access point does not advertise this service. Each device uses the hostname
-`remote-sd-<mac>.local`, where `<mac>` is its Wi-Fi MAC address in lowercase
-hexadecimal without separators, for example `remote-sd-001122334455.local`.
+DNS-SD service `_wireless-3dp._tcp.local.` over mDNS on TCP port 80. The
+service name is shortened to fit DNS-SD's 15-character service-name limit.
+The setup access point does not advertise this service. Each device uses the
+hostname `wireless-3d-printer-<mac>.local`, where `<mac>` is its Wi-Fi MAC
+address in lowercase hexadecimal without separators, for example
+`wireless-3d-printer-001122334455.local`.
 The hostname and device ID are stable as long as the Wi-Fi MAC address remains
 the same; they are not secrets.
 
-The DHCP hostname sent to the router is the fixed name `remote-sd`; it is
+The DHCP hostname sent to the router is the fixed name `wireless-3d-printer`; it is
 independent of this unique mDNS hostname and the configurable display name.
 
-A Cura plugin or other client can browse `_remote-sd._tcp.local.`, resolve
+The renamed service, hostname, device ID, and API type are incompatible with
+clients using the previous identifiers. Update the firmware and clients
+together; saved custom device names are not renamed.
+
+A Cura plugin or other client can browse `_wireless-3dp._tcp.local.`, resolve
 each service's SRV target, port and addresses, and request `/api/device` from
 that address and port. Use the `id` to deduplicate devices across addresses
 and repeated announcements. Remove expired services and handle devices
@@ -22,8 +28,8 @@ multicast DNS is unavailable or blocked between network segments.
 For example, on a machine with Avahi:
 
 ```sh
-avahi-browse -rt _remote-sd._tcp
-curl http://remote-sd-001122334455.local/api/device
+avahi-browse -rt _wireless-3dp._tcp
+curl http://wireless-3d-printer-001122334455.local/api/device
 ```
 
 ## Device information endpoint
@@ -33,16 +39,16 @@ curl http://remote-sd-001122334455.local/api/device
 
 ```json
 {
-  "type": "remote-sd",
-  "id": "remote-sd-001122334455",
-  "name": "Remote SD",
+  "type": "wireless-3d-printer",
+  "id": "wireless-3d-printer-001122334455",
+  "name": "wireless-3d-printer",
   "api_version": 1
 }
 ```
 
 `type` identifies this project, `id` identifies the device, `name` is the
-display label saved during setup (default `Remote SD`), and `api_version` is
-the integer version of this response contract. The endpoint does not return
+display label saved during setup (default `wireless-3d-printer`), and
+`api_version` is the integer version of this response contract. The endpoint does not return
 Wi-Fi credentials. In setup mode it returns HTTP 404. If mDNS initialization or
 service registration fails, the serial log reports the failure and the HTTP
 server remains available by IP address.

@@ -25,21 +25,21 @@ class Bridge(QObject):
     progress = pyqtSignal(int)
 
 
-class RemoteSDPlugin(OutputDevicePlugin):
+class Wireless3DPrinterPlugin(OutputDevicePlugin):
     def start(self):
-        self._device = RemoteSDOutputDevice()
+        self._device = Wireless3DPrinterOutputDevice()
         self.getOutputDeviceManager().addOutputDevice(self._device)
 
     def stop(self):
-        self.getOutputDeviceManager().removeOutputDevice("remote_sd")
+        self.getOutputDeviceManager().removeOutputDevice("wireless_3d_printer")
 
 
-class RemoteSDOutputDevice(OutputDevice):
+class Wireless3DPrinterOutputDevice(OutputDevice):
     def __init__(self):
-        super().__init__("remote_sd")
-        self.setName("Remote SD")
-        self.setShortDescription("Save to Remote-SD")
-        self.setDescription("Save to Remote-SD")
+        super().__init__("wireless_3d_printer")
+        self.setName("wireless-3d-printer")
+        self.setShortDescription("Save to wireless-3d-printer")
+        self.setDescription("Save to wireless-3d-printer")
         self.setIconName("save")
         self._bridge = Bridge()
         self._bridge.discovered.connect(self._on_discovered)
@@ -53,14 +53,14 @@ class RemoteSDOutputDevice(OutputDevice):
     def requestWrite(self, nodes, file_name=None, limit_mimetypes=False,
                      file_handler=None, filter_by_machine=False, **kwargs):
         if self._busy:
-            Message("A Remote SD upload is already in progress.", title="Remote SD").show()
+            Message("A wireless-3d-printer upload is already in progress.", title="wireless-3d-printer").show()
             return
         self._busy = True
         self._upload_result = None
         self._nodes = nodes
         self._filename = client.safe_filename(file_name)
-        self._message = Message("Scanning the local network for Remote SD devices...",
-                                title="Remote SD", progress=-1, lifetime=0,
+        self._message = Message("Scanning the local network for wireless-3d-printer devices...",
+                                title="wireless-3d-printer", progress=-1, lifetime=0,
                                 dismissable=False, use_inactivity_timer=False)
         self._message.show()
         threading.Thread(target=self._scan, daemon=True).start()
@@ -78,11 +78,11 @@ class RemoteSDOutputDevice(OutputDevice):
             self._finish("Discovery failed: " + error, failed=True)
             return
         if not devices:
-            self._finish("No Remote SD devices found. Check the network and mDNS.", failed=True)
+            self._finish("No wireless-3d-printer devices found. Check the network and mDNS.", failed=True)
             return
         if len(devices) > 1:
             labels = ["{} ({}, {}:{})".format(d.name, d.id, d.address, d.port) for d in devices]
-            selection, accepted = QInputDialog.getItem(None, "Remote SD", "Select a device:",
+            selection, accepted = QInputDialog.getItem(None, "wireless-3d-printer", "Select a device:",
                                                        labels, 0, False)
             if not accepted:
                 self._finish()
@@ -91,7 +91,7 @@ class RemoteSDOutputDevice(OutputDevice):
         else:
             device = devices[0]
         confirmation = QMessageBox.question(
-            None, "Save to Remote-SD",
+            None, "Save to wireless-3d-printer",
             "Upload {} to {} ({})?\n\n"
             "The printer filename is shortened to 8.3 format; collisions are rejected. "
             "Keep the printer idle and do not start a print during the upload."
@@ -161,11 +161,11 @@ class RemoteSDOutputDevice(OutputDevice):
             try:
                 os.unlink(self._path)
             except OSError as error:
-                Message("Could not remove temporary G-code: " + str(error), title="Remote SD").show()
+                Message("Could not remove temporary G-code: " + str(error), title="wireless-3d-printer").show()
             self._path = None
         self._busy = False
         if text:
-            Message(text, title="Remote SD").show()
+            Message(text, title="wireless-3d-printer").show()
         if started:
             if failed:
                 self.writeError.emit(self)

@@ -18,7 +18,7 @@
 #define CONFIG_DATA_ADDRESS 1
 #define CONFIG_STORAGE_SIZE 512
 #define DEVICE_NAME_MAX_BYTES 64
-#define DEFAULT_DEVICE_NAME "Remote SD"
+#define DEFAULT_DEVICE_NAME "wireless-3d-printer"
 
 class FlashManager {
     void saveString(const String &value, int *index);

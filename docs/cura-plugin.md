@@ -1,13 +1,15 @@
-# Cura Remote SD plugin
+# Cura wireless-3d-printer plugin
 
 The `ultimate-cura-plugin` directory contains a Cura 5 output-device plugin.
 It uploads G-code to the printer through the ESP32's USB host connection.
-Rebuild and reinstall the plugin after updating the firmware: older versions
-use an incompatible multipart upload contract.
+Rebuild and reinstall the plugin after updating the firmware: previous
+versions use different discovery identifiers and cannot discover renamed
+firmware. Remove the old `RemoteSD` plugin directory before installing the
+new plugin so Cura does not show both versions.
 
-After slicing, select **Save to Remote-SD** from the arrow beside Cura's save
+After slicing, select **Save to wireless-3d-printer** from the arrow beside Cura's save
 button, then click the save button. The plugin scans for
-`_remote-sd._tcp.local.`, verifies `/api/device`, and asks which device to use
+`_wireless-3dp._tcp.local.`, verifies `/api/device`, and asks which device to use
 when more than one is found. Confirm the destination before uploading.
 Keep the printer idle and do not start a print during the transfer. Names
 are shortened to DOS 8.3 and collisions are rejected; the resulting printer
@@ -30,17 +32,17 @@ From the repository root:
 python3 ultimate-cura-plugin/build.py
 ```
 
-The output is `ultimate-cura-plugin/dist/RemoteSD.zip`. Close Cura, then extract
-the `RemoteSD` directory from the zip into Cura's user plugin directory:
+The output is `ultimate-cura-plugin/dist/Wireless3DPrinter.zip`. Close Cura, then extract
+the `Wireless3DPrinter` directory from the zip into Cura's user plugin directory:
 
 - Linux: `${XDG_DATA_HOME:-~/.local/share}/cura/<major.minor>/plugins`
 - Windows: `%APPDATA%\cura\<major.minor>\plugins`
 - macOS: `~/Library/Application Support/cura/<major.minor>/plugins`
 
 For example, Cura 5.4 uses `5.4`. Create `plugins` if needed. The installed layout must be
-`plugins/RemoteSD/plugin.json`, not an extra nested `RemoteSD` directory.
+`plugins/Wireless3DPrinter/plugin.json`, not an extra nested `Wireless3DPrinter` directory.
 Restart Cura and enable the plugin in the plugin manager if it is disabled.
-Remove `plugins/RemoteSD` and restart Cura to uninstall it.
+Remove `plugins/Wireless3DPrinter` and restart Cura to uninstall it.
 
 The zip is a manually installed plugin directory, not a signed Marketplace
 `.curapackage`. Building it uses pip and includes the dependencies and their
@@ -69,5 +71,5 @@ python3 -m unittest discover -s ultimate-cura-plugin/tests -v
 The transport tests use a local HTTP server and simulated discovery. The Cura
 UI integration tests require Cura/Uranium and PyQt6 in the Python environment;
 they are skipped if those imports are unavailable. A live Cura UI and a real
-Remote SD device are needed to verify end-to-end operation. No test uploads
+wireless-3d-printer device are needed to verify end-to-end operation. No test uploads
 firmware.

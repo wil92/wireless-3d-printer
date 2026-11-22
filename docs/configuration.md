@@ -21,7 +21,7 @@ automatically mark the device as configured or bypass the setup access point.
 Saved EEPROM credentials replace them when a configured device starts.
 
 The device connects directly in Wi-Fi station mode using the saved credentials
-and enables automatic reconnection. It sends `remote-sd` as its DHCP hostname;
+and enables automatic reconnection. It sends `wireless-3d-printer` as its DHCP hostname;
 routers may cache an older name or display clients differently. Multiple
 devices use the same DHCP hostname. This is separate from the setup display
 name and the unique mDNS hostname described in [network discovery](discovery.md).
@@ -32,11 +32,12 @@ web server does not start; the reset button remains available.
 Optional local HTTP log forwarding is described in
 [network debug logging](network-logging.md).
 
-The setup page also accepts a device name, initially `Remote SD`, which is
+The setup page also accepts a device name, initially `wireless-3d-printer`, which is
 saved with the credentials and returned by the discovery API. The name must
 be 1-64 UTF-8 bytes and cannot contain ASCII control characters. Existing
-configurations without a saved name continue to connect and use `Remote SD`;
-reset and configure the device again to select a different name. The new
+configurations without a saved name continue to connect and use `wireless-3d-printer`.
+Previously saved names are retained; reset and configure the device again to
+select a different name. The new
 flash format is not recognized by older firmware versions.
 
 The former `NETWORK_SSID` and `NETWORK_PASSWORD` environment variables are no
@@ -46,9 +47,10 @@ flags were unused by this application and have been removed.
 ## Setup access point
 
 `access_point_config.h` defines `AP_SSID` and `AP_PASSWORD` as C string
-literals for the setup access point. The example preserves the existing
-`RemoteSDDevice` and `remotesd` defaults. Set a private password in a local
-header before deploying the device; the example password is public.
+literals for the setup access point. The example uses `Wireless3DPrinter` and
+`wireless3dprinter` as defaults. These defaults changed with the project name;
+local configuration headers keep their existing values. Set a private password
+in a local header before deploying the device; the example password is public.
 
 Connect to the setup access point and open `http://192.168.1.1/`. The page
 scans nearby Wi-Fi networks automatically; use **Refresh** to scan again, or
