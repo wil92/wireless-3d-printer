@@ -326,6 +326,8 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
         client->stop();
         return;
     }
+    const unsigned long uploadStart = millis();
+    DebugLog.println(String("Printer upload request bytes=") + String(static_cast<unsigned long>(length)));
     std::string target;
     if (!printer->beginUpload(name->second.c_str(), target)) {
         DebugLog.println(String("Printer upload preflight failed: ") + printer->error().c_str());
@@ -335,9 +337,18 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
     }
     std::string line;
     bool comment = false, success = true;
+    const char *failurePhase = "none";
+    size_t receivedBytes = 0, inputLines = 0;
     unsigned long lastByte = millis();
-    for (size_t i = 0; i < length && success;) {
-        if (!client->connected() || millis() - lastByte >= 10000) {
+    unsigned long lastProgress = lastByte;
+    for (; receivedBytes < length && success;) {
+        if (!client->connected()) {
+            failurePhase = "http_disconnected";
+            success = false;
+            break;
+        }
+        if (millis() - lastByte >= 10000) {
+            failurePhase = "http_timeout";
             success = false;
             break;
         }
@@ -347,24 +358,49 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
         }
         const int c = client->read();
         if (c < 0) continue;
-        ++i;
-        if ((i & 1023) == 0) delay(0);
+        ++receivedBytes;
+        if ((receivedBytes & 1023) == 0) delay(0);
         lastByte = millis();
         if (c == '\n') {
+            ++inputLines;
             success = printer->uploadLine(line);
+            if (!success) failurePhase = "printer_data";
             line.clear();
             comment = false;
             lastByte = millis();
         } else if (c == ';') {
             comment = true;
         } else if (!comment) {
-            if (line.size() >= 256) success = false;
+            if (line.size() >= 256) {
+                failurePhase = "input_line_too_long";
+                success = false;
+            }
             else line += static_cast<char>(c);
         }
+        if (millis() - lastProgress >= 30000) {
+            DebugLog.println(String("Printer upload progress bytes=") +
+                             String(static_cast<unsigned long>(receivedBytes)) + "/" +
+                             String(static_cast<unsigned long>(length)) + " input_lines=" +
+                             String(static_cast<unsigned long>(inputLines)) + " elapsed_ms=" +
+                             String(millis() - uploadStart));
+            lastProgress = millis();
+        }
     }
-    if (success && !line.empty()) success = printer->uploadLine(line);
-    if (success) success = printer->finishUpload();
+    if (success && !line.empty()) {
+        ++inputLines;
+        success = printer->uploadLine(line);
+        if (!success) failurePhase = "printer_data";
+    }
+    if (success) {
+        success = printer->finishUpload();
+        if (!success) failurePhase = "printer_close";
+    }
     if (!success) {
+        DebugLog.println(String("Printer upload stopped phase=") + failurePhase + " bytes=" +
+                         String(static_cast<unsigned long>(receivedBytes)) + "/" +
+                         String(static_cast<unsigned long>(length)) + " input_lines=" +
+                         String(static_cast<unsigned long>(inputLines)) + " elapsed_ms=" +
+                         String(millis() - uploadStart));
         printer->abortUpload();
         const String reason = printer->error().empty()
                                   ? String("Upload interrupted or line too long.")
@@ -372,7 +408,10 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
         DebugLog.println(String("Printer upload failed: ") + reason);
         sendTextResponse(client, 503, reason + " A partial file may remain.");
     } else {
-        DebugLog.println("Printer upload completed");
+        DebugLog.println(String("Printer upload completed bytes=") +
+                         String(static_cast<unsigned long>(receivedBytes)) + " input_lines=" +
+                         String(static_cast<unsigned long>(inputLines)) + " elapsed_ms=" +
+                         String(millis() - uploadStart));
         sendTextResponse(client, 200, String("Saved as ") + target.c_str());
     }
     client->stop();

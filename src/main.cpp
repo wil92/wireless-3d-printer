@@ -1,6 +1,7 @@
 #include "main.h"
 
 #include <Arduino.h>
+#include <esp_system.h>
 
 #include "../include/hardware_pins.h"
 #include "../lib/debug_log/debug_log.h"
@@ -41,6 +42,10 @@ void setup() {
 #if defined(NETWORK_DEBUG_ADDRESS)
     DebugLog.begin();
 #endif
+    DebugLog.println(String("ESP boot reset_reason=") + String(static_cast<int>(esp_reset_reason())));
+    printer.setDiagnosticLogger([](const std::string &message) {
+        DebugLog.println(message.c_str());
+    });
 
     EEPROM.begin(CONFIG_STORAGE_SIZE);
 

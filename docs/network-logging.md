@@ -46,4 +46,19 @@ The UART reports queue, HTTP and startup errors. Failed HTTP deliveries are
 not retried, so network logs are best-effort and are not available when the
 device never reaches the configured network. Do not put credentials in logs.
 
+Printer upload diagnostics include the target DOS filename, HTTP byte and line
+counts, elapsed time, the current printer command and numbered line, response
+or timeout details, USB session changes, and whether an abort closed the file.
+Progress is logged at most once every 30 seconds; ordinary G-code lines are not
+logged. Unexpected printer responses are bounded and sanitized, but may still
+contain printer-provided information, including G-code echoed by the printer.
+A numeric ESP boot reset reason helps
+distinguish ESP resets from printer resets. The receiver has no timestamps of
+its own: printer diagnostics include ESP uptime in milliseconds. Delivery
+and timestamps can be incomplete because logging is best-effort.
+
+After a failure, keep the printer idle and verify that it has exited SD write
+mode before retrying; see [Marlin USB integration](marlin-usb.md). Preserve the
+receiver's log file across a retry, including the startup and failure messages.
+
 Run the receiver's host test with `node --test log-server/server.test.js`.

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,7 @@ struct MarlinFile {
 class MarlinClient {
 public:
     explicit MarlinClient(MarlinTransport &transport);
+    void setDiagnosticLogger(std::function<void(const std::string &)> logger);
     bool listFiles(std::vector<MarlinFile> &files);
     bool deleteFile(const std::string &path);
     bool beginUpload(const std::string &filename, std::string &target);
@@ -44,8 +46,13 @@ private:
     bool checkIdle();
     bool fail(const char *message);
     bool numbered(const std::string &command);
+    void diagnostic(const std::string &message);
 
     MarlinTransport &transport_;
+    std::function<void(const std::string &)> diagnosticLogger_;
+    std::string pendingCommand_;
+    size_t pendingBytes_ = 0;
+    unsigned int loggedDataReplies_ = 0;
     std::string error_;
     uint32_t lineNumber_ = 0;
     uint32_t session_ = 0;

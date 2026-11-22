@@ -201,6 +201,75 @@ void testAllowsM290ButRejectsM29() {
     client.abortUpload();
 }
 
+bool logsContain(const std::vector<std::string> &logs, const std::string &text) {
+    for (const std::string &line : logs) {
+        if (line.find(text) != std::string::npos) return true;
+    }
+    return false;
+}
+
+void testUploadTimeoutDiagnosticsAndAbortFailure() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("test.gcode", target));
+    transport.dataResponse = "start\nbooting\n";
+    transport.closing = "";
+    TEST_ASSERT_FALSE(client.uploadLine("G1 X12345"));
+    client.abortUpload();
+
+    TEST_ASSERT_TRUE(logsContain(logs, "upload_open target=TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "reply command=numbered:G1 line=1 text=start"));
+    TEST_ASSERT_TRUE(logsContain(logs, "wait_failed command=numbered:G1 line=1"));
+    TEST_ASSERT_TRUE(logsContain(logs, "reason=Printer response timed out. last=booting"));
+    TEST_ASSERT_TRUE(logsContain(logs, "upload_abort_result closed=no"));
+    TEST_ASSERT_FALSE(logsContain(logs, "X12345"));
+    TEST_ASSERT_EQUAL_STRING("Printer response timed out.", client.error().c_str());
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_FALSE(client.listFiles(files));
+}
+
+void testUploadAbortSuccessAndSanitizedResponses() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("test.gcode", target));
+    transport.dataResponse = std::string("Error:bad\t") + std::string(100, 'x') + "\n";
+    TEST_ASSERT_FALSE(client.uploadLine("G1 X1"));
+    client.abortUpload();
+    TEST_ASSERT_TRUE(logsContain(logs, "rejected command=numbered:G1 line=1 text=Error:bad?"));
+    TEST_ASSERT_TRUE(logsContain(logs, "upload_abort_result closed=yes detail=ok"));
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_TRUE(client.listFiles(files));
+}
+
+void testCloseTimeoutDiagnosticsAndReplyLimit() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("test.gcode", target));
+    transport.dataResponse = "busy: processing\nok\n";
+    for (int i = 0; i < 12; ++i) TEST_ASSERT_TRUE(client.uploadLine("G1 X1"));
+    size_t replies = 0;
+    for (const std::string &line : logs) {
+        if (line.find("reply command=numbered:G1") != std::string::npos) ++replies;
+    }
+    TEST_ASSERT_EQUAL_UINT(8, replies);
+    transport.closing = "saving\n";
+    TEST_ASSERT_FALSE(client.finishUpload());
+    TEST_ASSERT_TRUE(logsContain(logs, "upload_close line=13"));
+    TEST_ASSERT_TRUE(logsContain(logs, "wait_failed command=M29 line=13"));
+    TEST_ASSERT_TRUE(logsContain(logs, "last=saving"));
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_FALSE(client.listFiles(files));
+}
+
 void setUp() {}
 void tearDown() {}
 int main() {
@@ -216,5 +285,8 @@ int main() {
     RUN_TEST(testLongNamesAndShortNameFallback);
     RUN_TEST(testDeletesOnlyListedFileWhenIdleAndConfirmed);
     RUN_TEST(testAllowsM290ButRejectsM29);
+    RUN_TEST(testUploadTimeoutDiagnosticsAndAbortFailure);
+    RUN_TEST(testUploadAbortSuccessAndSanitizedResponses);
+    RUN_TEST(testCloseTimeoutDiagnosticsAndReplyLimit);
     return UNITY_END();
 }

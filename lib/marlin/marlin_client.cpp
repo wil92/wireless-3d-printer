@@ -28,9 +28,29 @@ std::string upper(const std::string &s) {
     }
     return result;
 }
+
+std::string logText(const std::string &text) {
+    std::string result;
+    for (size_t i = 0; i < text.size() && i < 80; ++i) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        result += c >= 0x20 && c <= 0x7e ? static_cast<char>(c) : '?';
+    }
+    if (text.size() > 80) result += "...";
+    return result;
+}
 }
 
 MarlinClient::MarlinClient(MarlinTransport &transport) : transport_(transport) {}
+
+void MarlinClient::setDiagnosticLogger(std::function<void(const std::string &)> logger) {
+    diagnosticLogger_ = logger;
+}
+
+void MarlinClient::diagnostic(const std::string &message) {
+    if (diagnosticLogger_) {
+        diagnosticLogger_("Printer diag t_ms=" + std::to_string(transport_.now()) + " " + message);
+    }
+}
 
 bool MarlinClient::fail(const char *message) {
     error_ = message;
@@ -65,13 +85,38 @@ bool MarlinClient::readLine(std::string &line, unsigned long timeoutMs) {
 }
 
 bool MarlinClient::sendCommand(const std::string &command) {
-    if (!transport_.connected()) return fail("Printer is not connected.");
+    pendingCommand_ = command[0] == 'N' ? "numbered" : command.substr(0, command.find(' '));
+    if (command.find("M110") != std::string::npos && command[0] == 'N') pendingCommand_ = "M110";
+    if (pendingCommand_ == "numbered") {
+        const size_t start = command.find(' ');
+        if (start != std::string::npos && start + 1 < command.size()) {
+            size_t end = start + 2;
+            while (end < command.size() && end < start + 9 &&
+                   (std::isdigit(static_cast<unsigned char>(command[end])) || command[end] == '.')) ++end;
+            const char letter = command[start + 1];
+            if ((letter == 'G' || letter == 'M' || letter == 'T' ||
+                 letter == 'g' || letter == 'm' || letter == 't') && end > start + 2) {
+                pendingCommand_ += ":" + upper(command.substr(start + 1, end - start - 1));
+            }
+        }
+    }
+    if (!transport_.connected()) {
+        diagnostic("send_failed command=" + pendingCommand_ + " reason=disconnected session=" +
+                   std::to_string(session_) + "/" + std::to_string(transport_.session()));
+        return fail("Printer is not connected.");
+    }
     if (transport_.session() != session_) {
         uncertain_ = true;
+        diagnostic("send_failed command=" + pendingCommand_ + " reason=session_changed session=" +
+                   std::to_string(session_) + "/" + std::to_string(transport_.session()));
         return fail("Printer USB connection changed during the operation.");
     }
     const std::string wire = command + "\n";
+    pendingBytes_ = wire.size();
     if (!transport_.write(wire.data(), wire.size())) {
+        diagnostic("send_failed command=" + pendingCommand_ + " line=" +
+                   std::to_string(lineNumber_) + " bytes=" + std::to_string(pendingBytes_) +
+                   " session=" + std::to_string(session_));
         return fail("Could not send command to printer.");
     }
     return true;
@@ -80,11 +125,31 @@ bool MarlinClient::sendCommand(const std::string &command) {
 bool MarlinClient::waitOk(bool *matched, const char *expected) {
     if (matched) *matched = false;
     const unsigned long start = transport_.now();
+    std::string lastResponse;
+    unsigned int otherResponses = 0;
     while (true) {
         const unsigned long elapsed = transport_.now() - start;
         if (elapsed >= response_timeout_ms) break;
         std::string line;
-        if (!readLine(line, response_timeout_ms - elapsed)) return false;
+        if (!readLine(line, response_timeout_ms - elapsed)) {
+            if (!line.empty()) lastResponse = line;
+            diagnostic("wait_failed command=" + pendingCommand_ + " line=" +
+                       std::to_string(lineNumber_) + " bytes=" + std::to_string(pendingBytes_) +
+                       " elapsed_ms=" + std::to_string(transport_.now() - start) +
+                       " session=" + std::to_string(session_) + "/" + std::to_string(transport_.session()) +
+                       " reason=" + error_ + " last=" + logText(lastResponse));
+            return false;
+        }
+        if (!isOk(line)) {
+            lastResponse = line;
+            ++otherResponses;
+            const bool dataReply = startsWith(pendingCommand_, "numbered");
+            if (otherResponses <= 3 && pendingCommand_ != "M115" &&
+                (!dataReply || loggedDataReplies_++ < 8)) {
+                diagnostic("reply command=" + pendingCommand_ + " line=" +
+                           std::to_string(lineNumber_) + " text=" + logText(line));
+            }
+        }
         if (expected && matched) {
             const bool exact = startsWith(expected, "Writing to file:") ||
                                startsWith(expected, "File deleted:");
@@ -96,14 +161,30 @@ bool MarlinClient::waitOk(bool *matched, const char *expected) {
             startsWith(line, "Resend:") || startsWith(line, "rs ")) {
             uncertain_ = true;
             error_ = "Printer reported: " + line.substr(0, 160);
+            diagnostic("rejected command=" + pendingCommand_ + " line=" +
+                       std::to_string(lineNumber_) + " text=" + logText(line));
             return false;
         }
         if (isOk(line)) {
-            if (matched && !*matched) return fail("Printer did not confirm the requested operation.");
+            if (matched && !*matched) {
+                diagnostic("confirmation_missing command=" + pendingCommand_ + " last=" +
+                           logText(lastResponse));
+                return fail("Printer did not confirm the requested operation.");
+            }
+            if (pendingCommand_ == "M28" || pendingCommand_ == "M29") {
+                diagnostic("ack command=" + pendingCommand_ + " elapsed_ms=" +
+                           std::to_string(transport_.now() - start) + " other_replies=" +
+                           std::to_string(otherResponses));
+            }
             return true;
         }
     }
     uncertain_ = true;
+    diagnostic("wait_failed command=" + pendingCommand_ + " line=" +
+               std::to_string(lineNumber_) + " bytes=" + std::to_string(pendingBytes_) +
+               " elapsed_ms=" + std::to_string(transport_.now() - start) +
+               " session=" + std::to_string(session_) + "/" + std::to_string(transport_.session()) +
+               " reason=timeout last=" + logText(lastResponse));
     return fail("Printer response timed out.");
 }
 
@@ -273,6 +354,8 @@ bool MarlinClient::beginUpload(const std::string &filename, std::string &target)
     error_.clear();
     if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
     if (!makeFilename(filename, target)) return fail("Invalid G-code filename.");
+    loggedDataReplies_ = 0;
+    diagnostic("upload_preflight target=" + target + " session=" + std::to_string(transport_.session()));
     if (!synchronize() || !checkIdle()) return false;
     std::vector<MarlinFile> files;
     if (!listFiles(files)) return false;
@@ -291,6 +374,7 @@ bool MarlinClient::beginUpload(const std::string &filename, std::string &target)
     uploading_ = true;
     uncertain_ = false;
     lineNumber_ = 1;
+    diagnostic("upload_open target=" + target + " session=" + std::to_string(session_));
     return true;
 }
 
@@ -330,8 +414,10 @@ bool MarlinClient::finishUpload() {
     uploading_ = false;
     uncertain_ = true;
     bool saved = false;
+    diagnostic("upload_close line=" + std::to_string(lineNumber_));
     if (!sendCommand("M29") || !waitOk(&saved, "Done saving file")) return false;
     uncertain_ = false;
+    diagnostic("upload_closed line=" + std::to_string(lineNumber_));
     return true;
 }
 
@@ -341,6 +427,9 @@ void MarlinClient::abortUpload() {
     uploading_ = false;
     uncertain_ = true;
     bool saved = false;
+    diagnostic("upload_abort line=" + std::to_string(lineNumber_) + " cause=" + logText(cause));
     if (sendCommand("M29") && waitOk(&saved, "Done saving file")) uncertain_ = false;
+    diagnostic("upload_abort_result closed=" + std::string(uncertain_ ? "no" : "yes") +
+               " detail=" + (uncertain_ ? logText(error_) : "ok"));
     error_ = cause.empty() ? "Upload aborted; a partial file may remain." : cause;
 }

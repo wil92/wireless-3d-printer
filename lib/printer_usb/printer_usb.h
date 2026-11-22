@@ -23,5 +23,6 @@ private:
     QueueHandle_t received_ = nullptr;
     std::atomic<uint8_t> address_{0};
     std::atomic<bool> failed_{false};
+    std::atomic<bool> overflow_{false};
     std::atomic<uint32_t> session_{0};
 };

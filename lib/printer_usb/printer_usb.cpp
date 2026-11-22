@@ -20,6 +20,7 @@ bool PrinterUsb::begin() {
             address_.load() == 0) {
             xQueueReset(received_);
             failed_.store(false);
+            overflow_.store(false);
             session_.fetch_add(1);
             address_.store(device.address);
             DebugLog.println("CH340 printer USB connected");
@@ -37,6 +38,7 @@ bool PrinterUsb::begin() {
         if (data.address != address_.load() || data.port != 0) return;
         for (size_t i = 0; i < data.length; ++i) {
             if (xQueueSend(received_, &data.data[i], 0) != pdTRUE) {
+                overflow_.store(true);
                 failed_.store(true);
                 break;
             }
@@ -50,6 +52,9 @@ bool PrinterUsb::begin() {
 }
 
 bool PrinterUsb::connected() {
+    if (overflow_.exchange(false)) {
+        DebugLog.println("Printer USB receive buffer overflow");
+    }
     const uint8_t address = address_.load();
     return address != 0 && !failed_.load() && host_.serialReady(address, 0);
 }
