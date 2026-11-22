@@ -118,11 +118,14 @@ void testPrinterListAndRawUpload() {
     manager.checkEndpoints(&list, "GET /api/files HTTP/1.1\r");
     TEST_ASSERT_TRUE(list.response.find("\"name\":\"Old print.gcode\",\"size\":42,\"path\":\"OLD.GCO\"") != std::string::npos);
     SetupConnectionClient upload;
-    upload.setRequest("Content-Type: application/octet-stream\r\n"
-                      "Content-Length: 6\r\n\r\nG1 X1\n");
+    const std::string body = "M117 TRANSFER TEST\r\n; ignored\r\nG1 X10 ; comment";
+    upload.setRequest("Content-Type: application/octet-stream\r\nContent-Length: " +
+                      std::to_string(body.size()) + "\r\n\r\n" + body);
     manager.checkEndpoints(&upload, "POST /upload?name=new.gcode HTTP/1.1\r");
     TEST_ASSERT_TRUE(upload.response.find("200 OK") != std::string::npos);
     TEST_ASSERT_TRUE(upload.response.find("Saved as NEW.GCO") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("N1 M117 TRANSFER TEST*56\n", transport.writes[transport.writes.size() - 3].c_str());
+    TEST_ASSERT_EQUAL_STRING("N2 G1 X10*83\n", transport.writes[transport.writes.size() - 2].c_str());
     TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes.back().c_str());
 }
 

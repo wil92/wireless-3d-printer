@@ -48,6 +48,44 @@ public:
     uint32_t session() override { return generation; }
 };
 
+class StrictUploadTransport : public FakeTransport {
+public:
+    uint32_t nextLine = 1;
+    bool saving = false;
+    bool protocolError = false;
+
+    bool write(const char *data, size_t length) override {
+        const std::string command(data, length);
+        if (!response.empty()) protocolError = true;
+        if (command == "N0 M110 N0*125\n") {
+            nextLine = 1;
+        } else if (command.find("M28 ") == 0) {
+            saving = true;
+        } else if (command == "M29\n") {
+            saving = false;
+        } else if (saving) {
+            const std::string prefix = "N" + std::to_string(nextLine) + " ";
+            const size_t star = command.rfind('*');
+            unsigned char checksum = 0;
+            if (star != std::string::npos) {
+                for (size_t i = 0; i < star; ++i) {
+                    checksum ^= static_cast<unsigned char>(command[i]);
+                }
+            }
+            if (command.compare(0, prefix.size(), prefix) != 0 ||
+                star == std::string::npos ||
+                command.substr(star) != "*" + std::to_string(checksum) + "\n") {
+                protocolError = true;
+                writes.push_back(command);
+                for (char c : std::string("Error:invalid numbered line\n")) response.push_back(c);
+                return true;
+            }
+            ++nextLine;
+        }
+        return FakeTransport::write(data, length);
+    }
+};
+
 void testSuccessfulTransferUsesCheckedLines() {
     FakeTransport transport;
     MarlinClient client(transport);
@@ -61,6 +99,29 @@ void testSuccessfulTransferUsesCheckedLines() {
     TEST_ASSERT_EQUAL_STRING("M28 /TEST_PRI.GCO\n", transport.writes[6].c_str());
     TEST_ASSERT_EQUAL_STRING("N1 G1 X10*80\n", transport.writes[7].c_str());
     TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes[8].c_str());
+}
+
+void testExampleAndSequentialCheckedLinesAcrossUploads() {
+    StrictUploadTransport transport;
+    MarlinClient client(transport);
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("ttt.gcode", target));
+    TEST_ASSERT_TRUE(client.uploadLine("M117 TRANSFER TEST"));
+    TEST_ASSERT_TRUE(client.uploadLine("; ignored"));
+    TEST_ASSERT_TRUE(client.uploadLine("  G1 X10 ; comment\r"));
+    for (int i = 0; i < 10; ++i) TEST_ASSERT_TRUE(client.uploadLine("G1 X1"));
+    TEST_ASSERT_TRUE(client.finishUpload());
+    TEST_ASSERT_EQUAL_STRING("M28 /TTT.GCO\n", transport.writes[6].c_str());
+    TEST_ASSERT_EQUAL_STRING("N1 M117 TRANSFER TEST*56\n", transport.writes[7].c_str());
+    TEST_ASSERT_EQUAL_STRING("N2 G1 X10*83\n", transport.writes[8].c_str());
+    TEST_ASSERT_EQUAL_UINT32(13, transport.nextLine);
+    TEST_ASSERT_FALSE(transport.protocolError);
+
+    TEST_ASSERT_TRUE(client.beginUpload("other.gcode", target));
+    TEST_ASSERT_TRUE(client.uploadLine("M117 TRANSFER TEST"));
+    TEST_ASSERT_EQUAL_STRING("N1 M117 TRANSFER TEST*56\n", transport.writes.back().c_str());
+    TEST_ASSERT_TRUE(client.finishUpload());
+    TEST_ASSERT_FALSE(transport.protocolError);
 }
 
 void testRejectsBusyAndUnconfirmedStatus() {
@@ -131,6 +192,12 @@ void testPrinterErrorsAreNotAcknowledgements() {
     transport.dataResponse = "Error:checksum mismatch\nResend:1\nok\n";
     TEST_ASSERT_FALSE(client.uploadLine("G1 X1"));
     TEST_ASSERT_EQUAL_STRING("Printer reported: Error:checksum mismatch", client.error().c_str());
+    const size_t afterError = transport.writes.size();
+    TEST_ASSERT_FALSE(client.uploadLine("G1 X2"));
+    TEST_ASSERT_FALSE(client.finishUpload());
+    TEST_ASSERT_EQUAL_UINT(afterError, transport.writes.size());
+    TEST_ASSERT_TRUE(client.uploading());
+    client.abortUpload();
 }
 
 void testReconnectDuringUploadDoesNotSendToAnotherPrinter() {
@@ -275,6 +342,7 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(testSuccessfulTransferUsesCheckedLines);
+    RUN_TEST(testExampleAndSequentialCheckedLinesAcrossUploads);
     RUN_TEST(testRejectsBusyAndUnconfirmedStatus);
     RUN_TEST(testRejectsCollisionsAndIncompleteFileLists);
     RUN_TEST(testRequiresOpenAndCloseConfirmation);

@@ -380,6 +380,7 @@ bool MarlinClient::beginUpload(const std::string &filename, std::string &target)
 
 bool MarlinClient::uploadLine(const std::string &input) {
     if (!uploading_) return fail("No upload is active.");
+    if (uncertain_) return fail("Printer transfer state is uncertain.");
     std::string line = input.substr(0, input.find(';'));
     while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
     const size_t first = line.find_first_not_of(" \t");
@@ -411,6 +412,7 @@ bool MarlinClient::uploadLine(const std::string &input) {
 
 bool MarlinClient::finishUpload() {
     if (!uploading_) return fail("No upload is active.");
+    if (uncertain_) return fail("Printer transfer state is uncertain.");
     uploading_ = false;
     uncertain_ = true;
     bool saved = false;
