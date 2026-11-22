@@ -16,11 +16,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
     status = 204
     info = {"type": "wireless-3d-printer", "id": "wireless-3d-printer-123", "name": "Workshop", "api_version": 1}
     uploads = []
+    files = []
+    file_status = 200
+    deletes = []
 
     def log_message(self, *args):
         pass
 
     def do_GET(self):
+        if self.path == "/api/files":
+            data = json.dumps(self.files).encode()
+            self.send_response(self.file_status)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path != "/api/device":
             self.send_error(404)
             return
@@ -35,6 +45,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.uploads.append((self.path, self.headers, data))
         self.send_response(self.status)
         self.end_headers()
+
+    def do_DELETE(self):
+        self.deletes.append(self.path)
+        self.send_response(self.file_status)
+        self.end_headers()
+        self.wfile.write(b"printer busy" if self.file_status != 200 else b"deleted")
 
 
 class ClientTests(unittest.TestCase):
@@ -54,6 +70,9 @@ class ClientTests(unittest.TestCase):
         Handler.status = 204
         Handler.info = {"type": "wireless-3d-printer", "id": "wireless-3d-printer-123", "name": "Workshop", "api_version": 1}
         Handler.uploads = []
+        Handler.files = []
+        Handler.file_status = 200
+        Handler.deletes = []
         self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
 
     def test_filename_is_safe_and_has_one_extension(self):
@@ -127,6 +146,30 @@ class ClientTests(unittest.TestCase):
             client.device_at("127.0.0.1", self.server.server_port)
         with self.assertRaises(ValueError):
             client.device_at("224.0.0.1", 80)
+
+    def test_list_and_delete_use_printer_path(self):
+        Handler.files = [{"name": "Long name.gcode", "path": "DIR/A B.GCO", "size": 123}]
+        self.assertEqual(client.list_files(self.device), Handler.files)
+        client.delete_file(self.device, Handler.files[0]["path"])
+        self.assertEqual(Handler.deletes, ["/api/files?path=DIR%2FA%20B.GCO"])
+
+    def test_file_operation_errors_and_invalid_lists(self):
+        Handler.file_status = 503
+        with self.assertRaisesRegex(RuntimeError, "HTTP 503"):
+            client.list_files(self.device)
+        Handler.file_status = 409
+        with self.assertRaisesRegex(RuntimeError, "HTTP 409.*printer busy"):
+            client.delete_file(self.device, "A.GCO")
+        Handler.file_status = 200
+        for invalid in ({"name": "not a list"}, [{"name": "bad", "size": 1}],
+                        [{"name": "bad", "path": "A.GCO", "size": True}],
+                        [{"name": "bad", "path": "A.GCO", "size": -1}],
+                        [{"name": "A", "path": "A", "size": 1}] * 257):
+            Handler.files = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                client.list_files(self.device)
+        with self.assertRaises(ValueError):
+            client.delete_file(self.device, "")
 
 
 if __name__ == "__main__":

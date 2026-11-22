@@ -17,6 +17,21 @@ filename is shown after success. See [file management](file-management.md).
 
 HTTP and mDNS are unencrypted and unauthenticated, so use a trusted network.
 
+## Local Printer tab
+
+Choose **LOCAL PRINTER** to manage files without starting an upload. Select
+**Search for printers**; a single discovered device is selected automatically.
+If several are found, choose one and click **Connect**. The tab shows the
+device name and the printer's file names and sizes. Use **Refresh files** to
+reload the list; the bordered table has a visible vertical scrollbar for long
+lists. Use **Delete** and confirm to remove a file by its printer
+path. Scanning again clears the current selection. Errors appear in the tab;
+refresh after an error to obtain an up-to-date list. Keep the printer idle and
+do not start a print or another file operation during deletion.
+
+The existing save button remains independent: it scans and asks for a
+destination on each upload, even if a printer is selected in the tab.
+
 ## Build and install
 
 Requirements: Cura 5 (SDK 8), Python 3.7 or later with pip, and network access to
@@ -43,6 +58,17 @@ For example, Cura 5.4 uses `5.4`. Create `plugins` if needed. The installed layo
 `plugins/Wireless3DPrinter/plugin.json`, not an extra nested `Wireless3DPrinter` directory.
 Restart Cura and enable the plugin in the plugin manager if it is disabled.
 Remove `plugins/Wireless3DPrinter` and restart Cura to uninstall it.
+
+On Linux only, after building and closing Cura, you can instead run:
+
+```sh
+ultimate-cura-plugin/upload-plugin.sh
+```
+
+The script selects the latest numeric version directory in
+`~/.local/share/cura`, replaces its `plugins/Wireless3DPrinter` directory,
+and extracts the built zip. It does not remove the legacy `RemoteSD` directory;
+remove that separately if present. Restart Cura after installation.
 
 The zip is a manually installed plugin directory, not a signed Marketplace
 `.curapackage`. Building it uses pip and includes the dependencies and their

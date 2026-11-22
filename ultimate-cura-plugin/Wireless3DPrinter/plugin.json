@@ -2,7 +2,7 @@
     "name": "wireless-3d-printer",
     "author": "wireless-3d-printer contributors",
     "version": "1.0.0",
-    "description": "Save sliced G-code to a wireless-3d-printer device on the local network.",
+    "description": "Send sliced G-code and manage files on wireless-3d-printer devices.",
     "api": 8,
     "supported_sdk_versions": ["8.0.0"]
 }

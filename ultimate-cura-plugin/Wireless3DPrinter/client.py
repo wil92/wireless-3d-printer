@@ -13,6 +13,8 @@ from dataclasses import dataclass
 SERVICE = "_wireless-3dp._tcp.local."
 CONNECT_TIMEOUT = 5
 UPLOAD_TIMEOUT = 600
+FILE_OPERATION_TIMEOUT = 120
+MAX_FILE_LIST_BYTES = 2 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -102,6 +104,40 @@ def discover(duration=3):
         if browser:
             browser.cancel()
         zc.close()
+
+
+def _file_request(device, method, path, limit):
+    connection = http.client.HTTPConnection(device.address, device.port, timeout=FILE_OPERATION_TIMEOUT)
+    try:
+        connection.request(method, path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        payload = response.read(limit + 1)
+        if len(payload) > limit:
+            raise ValueError("Printer response is too large")
+        if not 200 <= response.status < 300:
+            raise RuntimeError("HTTP {}: {}".format(response.status, payload.decode("utf-8", errors="replace")))
+        return payload
+    finally:
+        connection.close()
+
+
+def list_files(device):
+    payload = _file_request(device, "GET", "/api/files", MAX_FILE_LIST_BYTES)
+    files = json.loads(payload)
+    if not isinstance(files, list) or len(files) > 256:
+        raise ValueError("Invalid printer file list")
+    for entry in files:
+        if (not isinstance(entry, dict) or not isinstance(entry.get("name"), str)
+                or not isinstance(entry.get("path"), str) or not entry["path"]
+                or type(entry.get("size")) is not int or entry["size"] < 0):
+            raise ValueError("Invalid printer file entry")
+    return files
+
+
+def delete_file(device, path):
+    if not isinstance(path, str) or not path:
+        raise ValueError("Invalid printer file path")
+    _file_request(device, "DELETE", "/api/files?path=" + quote(path, safe=""), 4096)
 
 
 def upload(device, path, filename, progress=lambda percent: None):
