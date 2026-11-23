@@ -34,6 +34,9 @@ instructions throughout.
    unintended effects. Fix issues caused by the change and repeat the affected
    build and tests until they pass or a blocker cannot be resolved. Report
    pre-existing failures and blockers clearly rather than hiding them.
-8. **Report the outcome.** Summarize the feature and disclose any failed,
+8. **Update the version.** Use the
+   [`update-version`](../update-version/SKILL.md) skill, then rerun any checks
+   affected by the version change.
+9. **Report the outcome.** Summarize the feature and disclose any failed,
    skipped, or blocked validation. Commit changes only if the user explicitly
    requests a commit, and follow the repository's commit requirements.

@@ -10,6 +10,7 @@
 
 #include "../../../lib/webserver/web_server_manager.h"
 #include "../../../lib/scan_status.h"
+#include "../../../include/version.h"
 
 using namespace fakeit;
 
@@ -407,6 +408,27 @@ void testDeviceInfoIsJson() {
         "{\"type\":\"wireless-3d-printer\",\"id\":\"wireless-3d-printer-001122334455\","
         "\"name\":\"wireless-3d-printer\",\"api_version\":1}",
         client.response.c_str());
+}
+
+void testVersionEndpoint() {
+    FlashManager flash;
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    flash.isSetup = true;
+    WiFiClientTmp client;
+    client.buildHeaders();
+    TEST_ASSERT_FALSE(manager.checkEndpoints(&client, "GET /api/version HTTP/1.1\r"));
+    const std::string body = std::string("{\"firmware_version\":\"") + FIRMWARE_VERSION + "\"}";
+    const std::string expected = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+        "Cache-Control: no-store\r\nContent-Length: " + std::to_string(body.size()) +
+        "\r\nConnection: close\r\n\r\n" + body;
+    TEST_ASSERT_EQUAL_STRING(expected.c_str(), client.response.c_str());
+
+    flash.isSetup = false;
+    WiFiClientTmp setup;
+    setup.buildHeaders();
+    manager.checkEndpoints(&setup, "GET /api/version HTTP/1.1\r");
+    TEST_ASSERT_TRUE(setup.response.find("404 Not Found") != std::string::npos);
 }
 
 void testFileOperationsAreUnavailable() {
@@ -816,6 +838,7 @@ int runUnitTests() {
     RUN_TEST(testPrinterStatusEndpoint);
     RUN_TEST(testPrinterStatusEndpointRecoversFromReadTimeout);
     RUN_TEST(testDeviceInfoIsJson);
+    RUN_TEST(testVersionEndpoint);
     RUN_TEST(testPrinterListAndRawUpload);
     RUN_TEST(testPrinterDeleteEndpoint);
     RUN_TEST(testPrinterPrintEndpoint);

@@ -31,6 +31,9 @@ class LocalPrinterQmlTests(unittest.TestCase):
             "nozzle_temperature": 20, "bed_temperature": 21})
         status.start()
         self.addCleanup(status.stop)
+        version = patch.object(client, "version_warning", return_value="")
+        version.start()
+        self.addCleanup(version.stop)
         with patch.object(local_printer.Application, "getInstance", return_value=application):
             stage = local_printer.LocalPrinterStage()
             stage._on_engine_created()
@@ -81,6 +84,16 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertGreaterEqual(content.property("y"), 0)
 
         assert_centered()
+        warning = root.findChild(QObject, "versionWarning")
+        self.assertFalse(warning.property("visible"))
+        stage._version_warning = "WARNING: major versions differ"
+        stage.changed.emit()
+        app.processEvents()
+        self.assertTrue(warning.property("visible"))
+        self.assertIn("major versions differ", warning.property("text"))
+        stage._version_warning = ""
+        stage.changed.emit()
+        app.processEvents()
         for name in ("printerTitle", "printerName", "searchPrinters"):
             font = root.findChild(QObject, name).property("font")
             self.assertEqual(font.family(), "DejaVu Sans")

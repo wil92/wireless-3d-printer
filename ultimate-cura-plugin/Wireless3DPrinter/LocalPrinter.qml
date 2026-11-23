@@ -88,6 +88,16 @@ Rectangle {
             elide: Text.ElideRight
         }
         Label {
+            objectName: "versionWarning"
+            visible: root.stage.versionWarning !== ""
+            text: root.stage.versionWarning
+            color: "#b91c1c"
+            font: UM.Theme.getFont("medium_bold")
+            wrapMode: Text.Wrap
+            horizontalAlignment: Text.AlignHCenter
+            Layout.fillWidth: true
+        }
+        Label {
             text: root.stage.status
             color: UM.Theme.getColor("text")
             font: UM.Theme.getFont("medium")

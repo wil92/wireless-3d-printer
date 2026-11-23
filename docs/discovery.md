@@ -53,6 +53,9 @@ Wi-Fi credentials. In setup mode it returns HTTP 404. If mDNS initialization or
 service registration fails, the serial log reports the failure and the HTTP
 server remains available by IP address.
 
+For the independently versioned firmware and Cura plugin, see the
+[version endpoint and compatibility policy](versioning.md).
+
 HTTP and mDNS are unauthenticated and unencrypted. Discovery identifies a
 device but does not authenticate it; use this service only on a trusted local
 network. mDNS multicast may be blocked by client isolation, firewalls, or

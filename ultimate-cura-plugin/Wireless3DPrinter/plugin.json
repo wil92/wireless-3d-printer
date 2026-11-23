@@ -1,7 +1,7 @@
 {
     "name": "wireless-3d-printer",
     "author": "wireless-3d-printer contributors",
-    "version": "1.0.0",
+    "version": "1.0",
     "description": "Send sliced G-code and manage files on wireless-3d-printer devices.",
     "api": 8,
     "supported_sdk_versions": ["8.0.0"]

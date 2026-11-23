@@ -27,6 +27,9 @@ If several are found, choose one and click **Connect**. The tab shows the
 device name and the printer's file names and sizes. Use **Refresh files** to
 reload the list; the bordered table has a visible vertical scrollbar for long
 lists. The tab polls SD activity and nozzle/bed temperatures every 10 seconds.
+On connection, a warning appears if the plugin and firmware major versions
+differ or their compatibility cannot be verified. Operations remain available.
+See [versioning](versioning.md) for the version policy and recovery.
 Polling runs quietly in the background and keeps the last values visible until
 they change. If a poll fails, the tab reports the error and marks status
 unavailable until a later poll succeeds.

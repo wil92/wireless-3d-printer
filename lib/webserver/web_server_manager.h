@@ -34,6 +34,8 @@ private:
 #endif
     void handleDeviceInfo(WiFiClient *client) const;
 
+    void handleVersion(WiFiClient *client) const;
+
     void handleFiles(WiFiClient *client);
 
     void handlePrinterStatus(WiFiClient *client);

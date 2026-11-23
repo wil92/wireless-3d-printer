@@ -33,9 +33,43 @@ class LocalPrinterTests(unittest.TestCase):
             "nozzle_temperature": 20.0, "bed_temperature": 21.0})
         status.start()
         self.addCleanup(status.stop)
+        version = patch.object(client, "version_warning", return_value="")
+        version.start()
+        self.addCleanup(version.stop)
         self.one = client.Device("one", "Workshop", "127.0.0.1", 80)
         self.two = client.Device("two", "Other", "127.0.0.2", 80)
         self.files = [{"name": "Long name", "path": "LONG.GCO", "size": 12}]
+
+    def test_version_warning_is_visible_and_cleared_when_switching(self):
+        with patch.object(client, "discover", return_value=[self.one, self.two]), \
+                patch.object(client, "list_files", return_value=self.files), \
+                patch.object(client, "version_warning", side_effect=["WARNING: major mismatch", ""]) as version, \
+                patch.object(local_printer, "Message") as message:
+            self.stage.search()
+            self.wait_done()
+            self.stage.connectPrinter(0)
+            self.wait_done()
+            self.assertEqual(self.stage.versionWarning, "WARNING: major mismatch")
+            message.assert_called_once()
+            self.stage.refresh()
+            self.wait_done()
+            self.assertEqual(self.stage.versionWarning, "WARNING: major mismatch")
+            self.stage.connectPrinter(1)
+            self.wait_done()
+            self.assertEqual(self.stage.versionWarning, "")
+            self.assertEqual(version.call_count, 2)
+
+    def test_unavailable_version_warns_without_blocking_files(self):
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "list_files", return_value=self.files), \
+                patch.object(client, "version_warning", side_effect=RuntimeError("HTTP 404")), \
+                patch.object(local_printer, "Message") as message:
+            self.stage.search()
+            self.wait_done()
+        self.assertIn("WARNING", self.stage.versionWarning)
+        self.assertIn("HTTP 404", self.stage.versionWarning)
+        self.assertEqual(self.stage.files, [dict(self.files[0], currentModel=False)])
+        message.assert_called_once()
 
     def wait_done(self):
         deadline = time.monotonic() + 5

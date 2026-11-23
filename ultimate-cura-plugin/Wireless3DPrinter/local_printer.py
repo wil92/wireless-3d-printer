@@ -5,6 +5,7 @@ import threading
 
 from PyQt6.QtCore import QTimer, pyqtProperty, pyqtSignal, pyqtSlot
 from UM.Application import Application
+from UM.Message import Message
 from cura.Stages.CuraStage import CuraStage
 
 from . import client
@@ -31,6 +32,7 @@ class LocalPrinterStage(CuraStage):
         self._generation = 0
         self._printer_status = None
         self._status_error = None
+        self._version_warning = ""
         self._status = "Search for a printer on the local network."
         self._completed.connect(self._on_completed)
         self._status_completed.connect(self._on_status_completed)
@@ -106,6 +108,10 @@ class LocalPrinterStage(CuraStage):
     @pyqtProperty(str, notify=changed)
     def status(self):
         return self._status
+
+    @pyqtProperty(str, notify=changed)
+    def versionWarning(self):
+        return self._version_warning
 
     @pyqtProperty(bool, notify=changed)
     def canDelete(self):
@@ -193,6 +199,7 @@ class LocalPrinterStage(CuraStage):
         self._devices = []
         self.devicesChanged.emit()
         self._device = None
+        self._version_warning = ""
         self.printerChanged.emit()
         self._files = []
         self._printer_status = None
@@ -206,13 +213,14 @@ class LocalPrinterStage(CuraStage):
         if self._busy or index < 0 or index >= len(self._devices):
             return
         self._device = self._devices[index]
+        self._version_warning = ""
         self.printerChanged.emit()
         self._files = []
         self._printer_status = None
         self.filesChanged.emit()
         self.printerStatusChanged.emit()
         self._clear_selection()
-        self.refresh()
+        self._start("version", "Checking firmware version...", client.version_warning, self._device)
 
     @pyqtSlot()
     def refresh(self):
@@ -245,6 +253,16 @@ class LocalPrinterStage(CuraStage):
     @pyqtSlot(str, object, object)
     def _on_completed(self, operation, result, error):
         self._busy = False
+        if operation == "version":
+            self._version_warning = (
+                "WARNING: Could not verify firmware compatibility: {}. "
+                "The plugin and firmware may be incompatible.".format(error)
+                if error else result)
+            if self._version_warning:
+                Message(self._version_warning, title="wireless-3d-printer").show()
+            self.changed.emit()
+            self.refresh()
+            return
         if error:
             if operation in ("list", "delete"):
                 self._files = []

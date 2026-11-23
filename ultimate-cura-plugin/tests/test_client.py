@@ -1,4 +1,5 @@
 import http.server
+import io
 import json
 import sys
 import tempfile
@@ -23,11 +24,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
     prints = []
     printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                      "nozzle_temperature": 210.5, "bed_temperature": None}
+    version = {"firmware_version": "1.0"}
+    version_status = 200
 
     def log_message(self, *args):
         pass
 
     def do_GET(self):
+        if self.path == "/api/version":
+            data = json.dumps(self.version).encode()
+            self.send_response(self.version_status)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path == "/api/status":
             data = json.dumps(self.printer_state).encode()
             self.send_response(self.file_status)
@@ -99,6 +109,8 @@ class ClientTests(unittest.TestCase):
         Handler.deletes = []
         Handler.bulk_deletes = []
         Handler.prints = []
+        Handler.version = {"firmware_version": "1.0"}
+        Handler.version_status = 200
         Handler.printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                                  "nozzle_temperature": 210.5, "bed_temperature": None}
         self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
@@ -108,6 +120,39 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.safe_filename("..."), "untitled_print.gcode")
         self.assertEqual(client.safe_filename("example.gcode"), "example.gcode")
         self.assertEqual(len(client.safe_filename("a" * 200)), 106)
+
+    def test_version_compatibility_and_invalid_responses(self):
+        for version in ("1.0", "1.7", "1.100"):
+            Handler.version = {"firmware_version": version}
+            self.assertEqual(client.version_warning(self.device), "")
+        for version in ("0.9", "2.0", "10.1"):
+            Handler.version = {"firmware_version": version}
+            warning = client.version_warning(self.device)
+            self.assertIn("WARNING", warning)
+            self.assertIn("1.0", warning)
+            self.assertIn(version, warning)
+        for value in (None, {}, [], {"firmware_version": 1}, {"firmware_version": "1"},
+                      {"firmware_version": "1.0.0"}, {"firmware_version": "01.0"},
+                      {"firmware_version": "1.-1"}, {"firmware_version": "١.0"}):
+            Handler.version = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                client.version_warning(self.device)
+        Handler.version_status = 404
+        with self.assertRaisesRegex(RuntimeError, "HTTP 404"):
+            client.version_warning(self.device)
+        with patch.object(client, "_file_request", return_value=b"<html>old firmware</html>"):
+            with self.assertRaises(ValueError):
+                client.version_warning(self.device)
+
+    def test_version_comparison_uses_installed_plugin_metadata(self):
+        Handler.version = {"firmware_version": "2.1"}
+        with patch.object(Path, "open", side_effect=lambda **kwargs: io.StringIO('{"version":"2.4"}')):
+            self.assertEqual(client.version_warning(self.device), "")
+            Handler.version = {"firmware_version": "1.99"}
+            self.assertIn("plugin version 2.4", client.version_warning(self.device))
+        with patch.object(Path, "open", side_effect=lambda **kwargs: io.StringIO('{"version":"bad"}')):
+            with self.assertRaisesRegex(ValueError, "Invalid version"):
+                client.version_warning(self.device)
 
     def test_status_validation_and_filename_matching(self):
         self.assertEqual(client.printer_status(self.device), Handler.printer_state)

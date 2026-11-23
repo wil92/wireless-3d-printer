@@ -1,4 +1,5 @@
 #include "web_server_manager.h"
+#include "../../include/version.h"
 
 #include "views/server-config.index.h"
 #include "views/status.index.h"
@@ -145,6 +146,10 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
     }
     if (message.startsWith("GET /api/device HTTP/")) {
         handleDeviceInfo(client);
+        return false;
+    }
+    if (message.startsWith("GET /api/version HTTP/")) {
+        handleVersion(client);
         return false;
     }
     if (message.startsWith("GET /")) {
@@ -697,6 +702,18 @@ void WebServerManager::handleDeviceInfo(WiFiClient *client) const {
     client->print("{\"type\":\"wireless-3d-printer\",\"id\":\"" + deviceId +
                   "\",\"name\":\"" + escapeJson(flashManager->deviceName) +
                   "\",\"api_version\":1}");
+}
+
+void WebServerManager::handleVersion(WiFiClient *client) const {
+    consumeIncomingData(client);
+    if (!flashManager->isSetup) {
+        client->print(prepareHeaders(404));
+        return;
+    }
+    const String json = String("{\"firmware_version\":\"") + FIRMWARE_VERSION + "\"}";
+    client->print(String("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                         "Cache-Control: no-store\r\nContent-Length: ") +
+                  String(json.length()) + "\r\nConnection: close\r\n\r\n" + json);
 }
 
 void WebServerManager::handleWebsite(WiFiClient *client,

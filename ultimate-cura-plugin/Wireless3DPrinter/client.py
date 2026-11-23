@@ -10,6 +10,7 @@ import socket
 import time
 from urllib.parse import quote
 from dataclasses import dataclass
+from pathlib import Path
 
 SERVICE = "_wireless-3dp._tcp.local."
 CONNECT_TIMEOUT = 5
@@ -124,6 +125,29 @@ def _file_request(device, method, path, limit, body=None, headers=None, timeout=
         return payload
     finally:
         connection.close()
+
+
+def _version_parts(value):
+    if not isinstance(value, str) or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", value):
+        raise ValueError("Invalid version; expected major.minor")
+    return tuple(int(part) for part in value.split("."))
+
+
+def version_warning(device):
+    with (Path(__file__).parent / "plugin.json").open(encoding="utf-8") as metadata:
+        plugin_version = json.load(metadata)["version"]
+    plugin_major, _ = _version_parts(plugin_version)
+    payload = _file_request(device, "GET", "/api/version", 4096, timeout=CONNECT_TIMEOUT)
+    data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise ValueError("Invalid firmware version response")
+    firmware_version = data.get("firmware_version")
+    firmware_major, _ = _version_parts(firmware_version)
+    if plugin_major != firmware_major:
+        return ("WARNING: Cura plugin version {} and firmware version {} have different major "
+                "versions and may be incompatible. Update the plugin or firmware."
+                .format(plugin_version, firmware_version))
+    return ""
 
 
 def list_files(device):
