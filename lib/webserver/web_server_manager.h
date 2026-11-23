@@ -40,6 +40,8 @@ private:
 
     void handleDelete(WiFiClient *client, const String &message);
 
+    void handlePrint(WiFiClient *client, const String &message);
+
     void handleBulkDelete(WiFiClient *client);
 
     void handleUpload(WiFiClient *client, const String &message);

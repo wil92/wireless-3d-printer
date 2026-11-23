@@ -224,21 +224,91 @@ bool MarlinClient::synchronize() {
     return fail("Printer serial input did not become idle.");
 }
 
-bool MarlinClient::checkIdle() {
-    bool printing = false;
-    return readSdStatus(printing) &&
-           (!printing || fail("Printer did not confirm an idle SD state."));
+bool MarlinClient::ensureReady() {
+    if (uploading_) return fail("Printer transfer state is uncertain.");
+    if (!uncertain_) return true;
+    if (!statusRecoverable_) return fail("Printer transfer state is uncertain.");
+    return recoverStatus();
 }
 
-bool MarlinClient::readSdStatus(bool &printing) {
+bool MarlinClient::recoverStatus() {
+    if (!transport_.connected()) return fail("Printer is not connected; status recovery is pending.");
+    if (transport_.session() != session_) {
+        statusRecoverable_ = false;
+        return fail("Printer USB connection changed during status recovery.");
+    }
+    if (recoverySequence_ == std::numeric_limits<uint32_t>::max()) {
+        statusRecoverable_ = false;
+        return fail("Printer status recovery sequence exhausted.");
+    }
+    const std::string marker = "W3DP_SYNC_" + std::to_string(++recoverySequence_) +
+                               "_" + std::to_string(transport_.now());
+    diagnostic("status_recovery marker=" + marker + " session=" + std::to_string(session_));
+    if (!sendCommand("M118 " + marker)) return false;
+    bool markerSeen = false;
+    const unsigned long start = transport_.now();
+    while (transport_.now() - start < response_timeout_ms) {
+        std::string line;
+        if (!readLine(line, response_timeout_ms - (transport_.now() - start))) {
+            if (error_ != "Printer response timed out.") statusRecoverable_ = false;
+            diagnostic("status_recovery_wait marker_seen=" + std::string(markerSeen ? "yes" : "no") +
+                       " detail=" + logText(error_));
+            return false;
+        }
+        if (line == marker) {
+            markerSeen = true;
+        } else if (markerSeen && isOk(line)) {
+            uncertain_ = false;
+            statusRecoverable_ = false;
+            error_.clear();
+            diagnostic("status_recovery complete");
+            return true;
+        } else if (markerSeen && (startsWith(line, "Error:") || startsWith(line, "error:") ||
+                                 startsWith(line, "Resend:") || startsWith(line, "rs "))) {
+            statusRecoverable_ = false;
+            return fail("Printer rejected status recovery.");
+        }
+    }
+    diagnostic("status_recovery_wait marker_seen=" + std::string(markerSeen ? "yes" : "no") +
+               " detail=timeout");
+    return fail("Printer status recovery timed out.");
+}
+
+bool MarlinClient::checkIdle(const char *printPhase) {
+    bool printing = false;
+    const bool success = readSdStatus(printing, printPhase) &&
+                         (!printing || fail("Printer did not confirm an idle SD state."));
+    if (printPhase) {
+        diagnostic(std::string("print_idle phase=") + printPhase +
+                   " result=" + (success ? "idle" : "failed") +
+                   " detail=" + (success ? "none" : logText(error_)));
+    }
+    return success;
+}
+
+bool MarlinClient::readSdStatus(bool &printing, const char *printPhase) {
     if (!sendCommand("M27")) return false;
     bool idle = false, busy = false;
+    unsigned int replies = 0;
     const unsigned long start = transport_.now();
     while (true) {
         const unsigned long elapsed = transport_.now() - start;
         if (elapsed >= response_timeout_ms) break;
         std::string line;
-        if (!readLine(line, response_timeout_ms - elapsed)) return false;
+        if (!readLine(line, response_timeout_ms - elapsed)) {
+            if (printPhase && !line.empty()) {
+                diagnostic(std::string("print_reply phase=") + printPhase +
+                           " command=M27 incomplete=" + logText(line));
+            }
+            return false;
+        }
+        const bool newIdle = line == "Not SD printing" && !idle;
+        const bool newBusy = startsWith(line, "SD printing byte") && !busy;
+        if (printPhase && (replies < 3 || newIdle || newBusy)) {
+            diagnostic(std::string("print_reply phase=") + printPhase +
+                       " command=M27 text=" + logText(line));
+        }
+        ++replies;
         if (line == "Not SD printing") idle = true;
         if (startsWith(line, "SD printing byte")) busy = true;
         if (startsWith(line, "Error:") || startsWith(line, "error:") ||
@@ -259,7 +329,18 @@ bool MarlinClient::readSdStatus(bool &printing) {
 bool MarlinClient::getStatus(MarlinStatus &status) {
     status = MarlinStatus();
     error_.clear();
-    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
+    if (!ensureReady()) return false;
+    if (queryStatus(status)) return true;
+    if (uncertain_ && transport_.connected() && transport_.session() == session_ &&
+        (error_ == "Printer response timed out." || error_ == "Printer status timed out." ||
+         error_ == "Printer temperature request timed out.")) {
+        statusRecoverable_ = true;
+        diagnostic("status_recovery_pending command=" + pendingCommand_ + " session=" + std::to_string(session_));
+    }
+    return false;
+}
+
+bool MarlinClient::queryStatus(MarlinStatus &status) {
     if (!synchronize() || !readSdStatus(status.sdPrinting) || !sendCommand("M105")) return false;
     const unsigned long start = transport_.now();
     while (transport_.now() - start < response_timeout_ms) {
@@ -293,8 +374,8 @@ bool MarlinClient::getStatus(MarlinStatus &status) {
 
 bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
     files.clear();
-    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
     error_.clear();
+    if (!ensureReady()) return false;
     if (!synchronize() || !sendCommand("M20 L")) return false;
     bool started = false, ended = false;
     const unsigned long start = transport_.now();
@@ -366,7 +447,7 @@ bool MarlinClient::validFilePath(const std::string &path) {
 
 bool MarlinClient::deleteFile(const std::string &path) {
     error_.clear();
-    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
+    if (!ensureReady()) return false;
     if (!validFilePath(path)) return fail("Invalid printer file path.");
     if (!synchronize() || !checkIdle()) return false;
     std::vector<MarlinFile> files;
@@ -382,6 +463,96 @@ bool MarlinClient::deleteFile(const std::string &path) {
     const std::string expected = "File deleted: " + path.substr(slash == std::string::npos ? 0 : slash + 1);
     bool deleted = false;
     return waitOk(&deleted, expected.c_str());
+}
+
+bool MarlinClient::startPrint(const std::string &path) {
+    error_.clear();
+    diagnostic("print_begin path=" + logText(path) + " session=" + std::to_string(transport_.session()) +
+               " uploading=" + (uploading_ ? "yes" : "no") + " uncertain=" + (uncertain_ ? "yes" : "no"));
+    const auto failed = [this](const char *phase) {
+        diagnostic(std::string("print_failed phase=") + phase + " detail=" + logText(error_) +
+                   " uncertain=" + (uncertain_ ? "yes" : "no") +
+                   " session=" + std::to_string(session_) + "/" + std::to_string(transport_.session()));
+        return false;
+    };
+    if (!ensureReady()) {
+        return failed("preflight");
+    }
+    if (!validFilePath(path)) {
+        fail("Invalid printer file path.");
+        return failed("preflight");
+    }
+    if (path.size() + 6 > max_wire_line) {
+        fail("Printer file path is too long to select.");
+        return failed("preflight");
+    }
+    if (!synchronize()) return failed("synchronize");
+    diagnostic("print_synchronized session=" + std::to_string(session_));
+    if (!checkIdle("before_listing")) return failed("before_listing");
+    std::vector<MarlinFile> files;
+    if (!listFiles(files)) return failed("listing");
+    diagnostic("print_listing count=" + std::to_string(files.size()));
+    const MarlinFile *selected = nullptr;
+    for (const MarlinFile &file : files) {
+        if (upper(file.path) == upper(path)) { selected = &file; break; }
+    }
+    if (!selected) {
+        fail("Printer file was not found.");
+        return failed("listing");
+    }
+    diagnostic("print_target path=" + logText(selected->path) + " size=" + std::to_string(selected->size));
+    if (!checkIdle("before_selection")) return failed("before_selection");
+    if (!sendCommand("M23 /" + selected->path)) return failed("select_send");
+    diagnostic("print_command command=M23 result=sent");
+
+    const size_t slash = selected->path.rfind('/');
+    const std::string filename = selected->path.substr(slash == std::string::npos ? 0 : slash + 1);
+    const std::string opened = "File opened: " + filename + " Size: " + std::to_string(selected->size);
+    bool foundOpen = false, foundSelected = false;
+    unsigned int replies = 0;
+    const unsigned long start = transport_.now();
+    while (transport_.now() - start < response_timeout_ms) {
+        std::string line;
+        if (!readLine(line, response_timeout_ms - (transport_.now() - start))) {
+            if (!line.empty()) diagnostic("print_reply phase=selection command=M23 incomplete=" + logText(line));
+            return failed("selection_response");
+        }
+        const bool newOpen = upper(line) == upper(opened) && !foundOpen;
+        const bool newSelected = line == "File selected" && !foundSelected;
+        if (replies < 3 || newOpen || newSelected) {
+            diagnostic("print_reply phase=selection command=M23 text=" + logText(line));
+        }
+        ++replies;
+        if (upper(line) == upper(opened)) foundOpen = true;
+        if (line == "File selected") foundSelected = true;
+        if (startsWith(line, "Error:") || startsWith(line, "error:") ||
+            startsWith(line, "Resend:") || startsWith(line, "rs ")) {
+            uncertain_ = true;
+            fail("Printer rejected file selection.");
+            return failed("selection_response");
+        }
+        if (isOk(line)) {
+            diagnostic(std::string("print_selection open=") + (foundOpen ? "yes" : "no") +
+                       " selected=" + (foundSelected ? "yes" : "no") +
+                       " replies=" + std::to_string(replies));
+            if (!foundOpen || !foundSelected) {
+                fail("Printer did not confirm the selected file.");
+                return failed("selection_confirmation");
+            }
+            // M27 reports the newly selected, open file as paused on this Marlin firmware.
+            diagnostic("print_command command=M24 result=sending");
+            if (!sendCommand("M24") || !waitOk()) {
+                uncertain_ = true;
+                error_ = "Print may have started. Check the printer before retrying. " + error_;
+                return failed("start");
+            }
+            diagnostic("print_command command=M24 result=acknowledged");
+            return true;
+        }
+    }
+    uncertain_ = true;
+    fail("Printer file selection timed out.");
+    return failed("selection_response");
 }
 
 bool MarlinClient::makeFilename(const std::string &input, std::string &output) {
@@ -416,7 +587,7 @@ bool MarlinClient::numbered(const std::string &command) {
 
 bool MarlinClient::beginUpload(const std::string &filename, std::string &target) {
     error_.clear();
-    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
+    if (!ensureReady()) return false;
     if (!makeFilename(filename, target)) return fail("Invalid G-code filename.");
     loggedDataReplies_ = 0;
     diagnostic("upload_preflight target=" + target + " session=" + std::to_string(transport_.session()));

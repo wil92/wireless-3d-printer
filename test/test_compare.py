@@ -28,11 +28,20 @@ class CompareTest(unittest.TestCase):
                 self.assertIn("same content", result.stdout)
 
     def test_different_files(self):
-        for first, second in (
-            (b"a", b"b"),
-            (b"a", b"aa"),
-            (b"a" * 65536 + b"x", b"a" * 65536 + b"y"),
-            (b"line\n", b"line\r\n"),
+        for first, second, line, first_line, second_line in (
+            (b"a", b"b", 1, "b'a'", "b'b'"),
+            (b"a", b"aa", 1, "b'a'", "b'aa'"),
+            (b"a" * 65536 + b"x", b"a" * 65536 + b"y", 1,
+             repr(b"a" * 65536 + b"x"), repr(b"a" * 65536 + b"y")),
+            (b"line\n", b"line\r\n", 1, "b'line\\n'", "b'line\\r\\n'"),
+            (b"same\nfirst\n", b"same\nsecond\n", 2, "b'first\\n'", "b'second\\n'"),
+            (b"same\n", b"same\nextra\n", 2, "<end of file>", "b'extra\\n'"),
+            (b"same\nextra\n", b"same\n", 2, "b'extra\\n'", "<end of file>"),
+            (b"same\n\xff", b"same\n\x00", 2, "b'\\xff'", "b'\\x00'"),
+            (b"a" * 65535 + b"\nfirst", b"a" * 65535 + b"\nsecond",
+             2, "b'first'", "b'second'"),
+            (b"a" * 65536 + b"\nfirst", b"a" * 65536 + b"\nsecond",
+             2, "b'first'", "b'second'"),
         ):
             with self.subTest(first_length=len(first), second_length=len(second)):
                 self.first.write_bytes(first)
@@ -40,6 +49,9 @@ class CompareTest(unittest.TestCase):
                 result = self.compare(self.first, self.second)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("different content", result.stdout)
+                self.assertIn(f"First difference at line {line}:", result.stdout)
+                self.assertIn(f"First file: {first_line}\n", result.stdout)
+                self.assertIn(f"Second file: {second_line}\n", result.stdout)
 
     def test_missing_file_is_an_error(self):
         self.first.write_bytes(b"content")

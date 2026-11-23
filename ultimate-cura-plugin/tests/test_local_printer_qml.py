@@ -114,6 +114,8 @@ class LocalPrinterQmlTests(unittest.TestCase):
                 return None
 
             button = find_visual(file_list, "deleteFile")
+            print_button = find_visual(file_list, "printFile")
+            self.assertIsNotNone(print_button)
             self.assertIsNotNone(button, "list count={}, size={}x{}".format(
                 file_list.property("count"), file_list.property("width"), file_list.property("height")))
             delete_background = find_visual(button, "deleteFileBackground")
@@ -167,6 +169,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
             stage.changed.emit()
             app.processEvents()
             self.assertFalse(button.property("enabled"))
+            self.assertFalse(print_button.property("enabled"))
             self.assertNotEqual(delete_background.property("color").name(), "#f5c2c7")
             button_position = button.mapToScene(QPointF(button.property("width") / 2,
                                                        button.property("height") / 2)).toPoint()
@@ -175,6 +178,17 @@ class LocalPrinterQmlTests(unittest.TestCase):
             stage._printer_status["printer_status"] = "not_sd_printing"
             stage.changed.emit()
             app.processEvents()
+            print_position = print_button.mapToScene(QPointF(print_button.property("width") / 2,
+                                                            print_button.property("height") / 2)).toPoint()
+            with patch.object(client, "start_print") as start_print:
+                QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, print_position)
+                app.processEvents()
+                print_dialog = root.findChild(QObject, "printDialog")
+                self.assertTrue(print_dialog.property("visible"))
+                self.assertEqual(print_dialog.property("filePath"), "SHORT.GCO")
+                print_dialog.accept()
+                wait_done()
+                start_print.assert_called_once_with(device, "SHORT.GCO")
             QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, button_position)
             app.processEvents()
             self.assertTrue(dialog.property("visible"))

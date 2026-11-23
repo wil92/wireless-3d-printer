@@ -131,6 +131,10 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
         handleBulkDelete(client);
         return false;
     }
+    if (message.startsWith("POST /api/files/print?") && message.indexOf(" HTTP/") != -1) {
+        handlePrint(client, message);
+        return false;
+    }
     if (message.startsWith("POST /upload ") || message.startsWith("DELETE /")) {
         sendTextResponse(client, flashManager->isSetup ? 503 : 404,
                          flashManager->isSetup
@@ -298,6 +302,37 @@ void WebServerManager::handleDelete(WiFiClient *client, const String &message) {
     } else {
         DebugLog.println("Printer file deleted");
         sendTextResponse(client, 200, "Printer file deleted.");
+    }
+    client->stop();
+}
+
+void WebServerManager::handlePrint(WiFiClient *client, const String &message) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404,
+                         "Print operations are unavailable.");
+        client->stop();
+        return;
+    }
+    String header;
+    size_t bytes = 0;
+    do {
+        if (!readHttpLine(client, header, 512) || (bytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+    const auto parameters = parseQueryParameters(message, String("POST /api/files/print?").length());
+    const auto path = parameters.find("path");
+    if (path == parameters.end() || path->second.length() != std::strlen(path->second.c_str()) ||
+        !MarlinClient::validFilePath(path->second.c_str())) {
+        sendTextResponse(client, 400, "Invalid printer file path.");
+    } else if (!printer->startPrint(path->second.c_str())) {
+        DebugLog.println(String("Printer start failed: ") + printer->error().c_str());
+        sendTextResponse(client, 409, String(printer->error().c_str()));
+    } else {
+        DebugLog.println("Printer start command acknowledged");
+        sendTextResponse(client, 200, "Printer start command acknowledged.");
     }
     client->stop();
 }

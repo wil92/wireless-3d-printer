@@ -135,7 +135,7 @@ Rectangle {
             border.width: 1
             property real dataWidth: Math.max(0, width - 2 - fileScrollBar.width)
             property real sizeWidth: Math.min(120, dataWidth / 3)
-            property real actionWidth: Math.min(100, dataWidth / 3)
+            property real actionWidth: Math.min(190, dataWidth / 2)
             property real selectWidth: Math.min(48, dataWidth / 4)
 
             ColumnLayout {
@@ -286,8 +286,11 @@ Rectangle {
                             border.width: 1
                             Button {
                                 id: deleteButton
-                                anchors.fill: parent
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
                                 anchors.margins: 3
+                                width: Math.max(0, (parent.width - 9) / 2)
                                 objectName: "deleteFile"
                                 text: "Delete"
                                 font: UM.Theme.getFont("medium")
@@ -319,6 +322,22 @@ Rectangle {
                                     deleteDialog.open()
                                 }
                             }
+                            Button {
+                                objectName: "printFile"
+                                anchors.left: parent.left
+                                anchors.top: parent.top
+                                anchors.bottom: parent.bottom
+                                anchors.margins: 3
+                                width: Math.max(0, (parent.width - 9) / 2)
+                                text: "Print"
+                                font: UM.Theme.getFont("medium")
+                                enabled: root.stage.canDelete
+                                onClicked: {
+                                    printDialog.filePath = modelData.path
+                                    printDialog.fileName = modelData.name
+                                    printDialog.open()
+                                }
+                            }
                         }
                     }
                 }
@@ -326,6 +345,24 @@ Rectangle {
         }
     }
 
+    Dialog {
+        id: printDialog
+        objectName: "printDialog"
+        property string filePath: ""
+        property string fileName: ""
+        title: "Start printer file"
+        font: UM.Theme.getFont("medium")
+        modal: true
+        implicitWidth: 450
+        anchors.centerIn: parent
+        standardButtons: Dialog.Yes | Dialog.No
+        Label {
+            text: "Start " + printDialog.fileName + "?\nMake sure the printer is idle and ready to print."
+            font: UM.Theme.getFont("medium")
+            wrapMode: Text.Wrap
+        }
+        onAccepted: root.stage.printFile(filePath)
+    }
     Dialog {
         id: deleteDialog
         objectName: "deleteDialog"

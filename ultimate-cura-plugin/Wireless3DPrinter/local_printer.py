@@ -147,9 +147,14 @@ class LocalPrinterStage(CuraStage):
         previous_can_delete = self.canDelete
         previous_message = self._status
         self._printer_status = None if error else result
+        if self._status_error and self._status.endswith(" " + self._status_error):
+            self._status = self._status[:-(len(self._status_error) + 1)]
         if error:
             self._status_error = "Printer status failed: {}".format(error)
-            self._status = self._status_error
+            if self._status.startswith("Print failed:"):
+                self._status += " " + self._status_error
+            else:
+                self._status = self._status_error
         elif self._status_error is not None:
             if self._status == self._status_error:
                 self._status = "{} file(s) on the printer.".format(len(self._files))
@@ -214,6 +219,14 @@ class LocalPrinterStage(CuraStage):
             return
         self._start("delete", "Deleting printer file...", client.delete_file, self._device, path)
 
+    @pyqtSlot(str)
+    def printFile(self, path):
+        if not self.canDelete or not self._device or not any(f["path"] == path for f in self._files):
+            return
+        self._printer_status = None
+        self.printerStatusChanged.emit()
+        self._start("print", "Starting print...", client.start_print, self._device, path)
+
     @pyqtSlot()
     def deleteSelected(self):
         paths = sorted(self._selected)
@@ -231,7 +244,11 @@ class LocalPrinterStage(CuraStage):
                 self.filesChanged.emit()
                 self._clear_selection()
             self._status = "{} failed: {}".format(
-                {"search": "Search", "list": "Loading files", "delete": "Delete"}[operation], error)
+                {"search": "Search", "list": "Loading files", "delete": "Delete", "print": "Print"}[operation], error)
+            if operation == "print":
+                self.changed.emit()
+                self._poll_status()
+                return
         elif operation == "search":
             self._devices = result
             self.devicesChanged.emit()
@@ -244,6 +261,11 @@ class LocalPrinterStage(CuraStage):
             self._files = result
             self.filesChanged.emit()
             self._status = "{} file(s) on the printer.".format(len(result))
+            self.changed.emit()
+            self._poll_status()
+            return
+        elif operation == "print":
+            self._status = "Print command acknowledged. Check the printer."
             self.changed.emit()
             self._poll_status()
             return

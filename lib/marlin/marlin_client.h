@@ -37,6 +37,7 @@ public:
     void setDiagnosticLogger(std::function<void(const std::string &)> logger);
     bool listFiles(std::vector<MarlinFile> &files);
     bool deleteFile(const std::string &path);
+    bool startPrint(const std::string &path);
     bool getStatus(MarlinStatus &status);
     bool beginUpload(const std::string &filename, std::string &target);
     bool uploadLine(const std::string &line);
@@ -53,8 +54,11 @@ private:
     bool sendCommand(const std::string &command);
     bool waitOk(bool *matched = nullptr, const char *expected = nullptr);
     bool synchronize();
-    bool checkIdle();
-    bool readSdStatus(bool &printing);
+    bool ensureReady();
+    bool recoverStatus();
+    bool queryStatus(MarlinStatus &status);
+    bool checkIdle(const char *printPhase = nullptr);
+    bool readSdStatus(bool &printing, const char *printPhase = nullptr);
     bool fail(const char *message);
     bool numbered(const std::string &command);
     void diagnostic(const std::string &message);
@@ -69,4 +73,6 @@ private:
     uint32_t session_ = 0;
     bool uploading_ = false;
     bool uncertain_ = false;
+    bool statusRecoverable_ = false;
+    uint32_t recoverySequence_ = 0;
 };

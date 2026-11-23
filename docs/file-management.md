@@ -17,7 +17,7 @@ existing root file with that name; files are not intentionally overwritten.
 The returned name is the one to select on the printer.
 
 To compare local copies of files, see the
-[comparison script](../scripts/doc/compare.md).
+[comparison script](compare-local-files.md).
 
 ## HTTP API
 
@@ -42,6 +42,15 @@ To compare local copies of files, see the
 - `DELETE /api/files?path=<url-encoded-DOS-path>` deletes a listed file using
   Marlin M30. The printer must report idle and confirm the exact deletion.
   Read-only media, unsupported commands and missing confirmations fail.
+- `POST /api/files/print?path=<url-encoded-DOS-path>` selects a listed file
+  with M23 and sends M24 to start it. The path follows the deletion rules and
+  must fit the printer's serial command limit (at most 88 characters). The
+  printer must report no SD print and confirm the selected filename and size.
+  HTTP 200 means M24 was acknowledged, not that printing completed or even
+  necessarily started. If the response is lost or an error occurs after M24,
+  the print may have started; check the printer before retrying. Ensure the
+  printer is safe and ready to print and avoid other hosts or starting jobs
+  during this operation.
 - `POST /api/files/delete` deletes 1–256 files in order. Send a raw
   `text/plain` body with `Content-Length` containing DOS paths separated by
   LF (no trailing LF), for example `ONE.GCO\nDIR/TWO.GCO`. The body is limited
@@ -56,7 +65,7 @@ To compare local copies of files, see the
   the file list before retrying.
 
 Operations return HTTP 404 in setup mode, HTTP 409 for upload preflight
-failures (including a disconnected printer) and delete failures, and HTTP 503 for file-list or
+failures (including a disconnected printer), print and delete failures, and HTTP 503 for file-list or
 in-progress upload failures. Upload failures can leave a partial file or the
 printer in write mode. A successful HTTP response is sent only after the
 printer confirms M29 completion. HTTP is unauthenticated and unencrypted; use a

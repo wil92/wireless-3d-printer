@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include <deque>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -11,11 +12,14 @@ public:
     std::deque<char> response;
     std::vector<std::string> writes;
     std::string status = "Not SD printing\nok\n";
+    std::deque<std::string> statusResponses;
     std::string temperatures = "ok T:205.25 /210.00 B:60.50 /60.00\n";
     std::string listing = "Begin file list\nEnd file list\nok\n";
     std::string opening;
     std::string closing = "Done saving file\nok\n";
     std::string deletion = "File deleted: TEST.GCO\nok\n";
+    std::string selection = "File opened: TEST.GCO Size: 123\nFile selected\nok\n";
+    std::string start = "ok\n";
     std::string dataResponse = "ok\n";
     unsigned long time = 0;
     uint32_t generation = 1;
@@ -27,7 +31,10 @@ public:
         writes.push_back(command);
         std::string reply;
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
-        else if (command == "M27\n") reply = status;
+        else if (command == "M27\n") {
+            reply = statusResponses.empty() ? status : statusResponses.front();
+            if (!statusResponses.empty()) statusResponses.pop_front();
+        }
         else if (command == "M105\n") reply = temperatures;
         else if (command == "M20 L\n") reply = listing;
         else if (command.find("M28 ") == 0) {
@@ -35,6 +42,8 @@ public:
         }
         else if (command == "M29\n") reply = closing;
         else if (command.find("M30 ") == 0) reply = deletion;
+        else if (command.find("M23 ") == 0) reply = selection;
+        else if (command == "M24\n") reply = start;
         else reply = dataResponse;
         for (char c : reply) response.push_back(c);
         return true;
@@ -49,6 +58,224 @@ public:
     unsigned long now() override { return time; }
     uint32_t session() override { return generation; }
 };
+
+class SelectedFileTransport : public FakeTransport {
+public:
+    bool started = false;
+    bool write(const char *data, size_t length) override {
+        const std::string command(data, length);
+        const bool sent = FakeTransport::write(data, length);
+        if (command.find("M23 ") == 0) status = "SD printing byte 0/123\nok\n";
+        if (command == "M24\n") started = true;
+        return sent;
+    }
+};
+
+class RecoveryTransport : public FakeTransport {
+public:
+    bool timeoutFirmware = false;
+    bool respondToMarker = true;
+    std::string beforeMarker;
+    std::string afterMarker = "ok\n";
+    std::string marker;
+
+    void enqueue(const std::string &text) {
+        for (char c : text) response.push_back(c);
+    }
+
+    bool write(const char *data, size_t length) override {
+        const std::string command(data, length);
+        if (command == "M115\n" && timeoutFirmware) {
+            writes.push_back(command);
+            enqueue(" T:25.34 /0.00 B:25.57 /55.00 W:?\n");
+            return true;
+        }
+        if (command.find("M118 ") == 0) {
+            writes.push_back(command);
+            marker = command.substr(5, command.size() - 6);
+            enqueue(beforeMarker);
+            if (respondToMarker) enqueue(marker + "\n" + afterMarker);
+            return true;
+        }
+        return FakeTransport::write(data, length);
+    }
+};
+
+void testStatusTimeoutRecoversWithoutAcceptingStaleReplies() {
+    RecoveryTransport transport;
+    transport.timeoutFirmware = true;
+    MarlinClient client(transport);
+    MarlinStatus status;
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.timeoutFirmware = false;
+    transport.respondToMarker = false;
+    transport.beforeMarker = "ok\nFIRMWARE_NAME:Marlin\nok\n";
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_FALSE(client.listFiles(files));
+    TEST_ASSERT_EQUAL_UINT(2, transport.writes.size());
+    TEST_ASSERT_TRUE(transport.writes.back().find("M118 W3DP_SYNC_") == 0);
+    const std::string marker = transport.marker;
+    transport.beforeMarker = "W3DP_SYNC_OLD\nok\n" + marker + "\nok\n";
+    transport.respondToMarker = true;
+    TEST_ASSERT_TRUE(client.listFiles(files));
+    TEST_ASSERT_TRUE(marker != transport.marker);
+    TEST_ASSERT_EQUAL_UINT(5, transport.writes.size());
+    TEST_ASSERT_EQUAL_STRING("M115\n", transport.writes[3].c_str());
+    TEST_ASSERT_EQUAL_STRING("M20 L\n", transport.writes[4].c_str());
+}
+
+void testStatusRecoveryWaitsForMarkerAcknowledgement() {
+    RecoveryTransport transport;
+    transport.timeoutFirmware = true;
+    MarlinClient client(transport);
+    MarlinStatus status;
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.timeoutFirmware = false;
+    transport.afterMarker = "";
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(2, transport.writes.size());
+    const std::string oldMarker = transport.marker;
+    transport.beforeMarker = "ok\n" + oldMarker + "\nok\n";
+    transport.afterMarker = "ok\n";
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_FALSE(status.sdPrinting);
+    TEST_ASSERT_TRUE(oldMarker != transport.marker);
+    TEST_ASSERT_EQUAL_STRING("M115\n", transport.writes[3].c_str());
+}
+
+void testStatusRecoveryRetriesMarkerDroppedByAbort() {
+    RecoveryTransport transport;
+    transport.timeoutFirmware = true;
+    MarlinClient client(transport);
+    MarlinStatus status;
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.timeoutFirmware = false;
+    transport.respondToMarker = false;
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    const std::string droppedMarker = transport.marker;
+    transport.respondToMarker = true;
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_TRUE(droppedMarker != transport.marker);
+    TEST_ASSERT_FALSE(status.sdPrinting);
+}
+
+void testStatusTimeoutRecoveryForSdAndTemperature() {
+    for (int which = 0; which < 2; ++which) {
+        RecoveryTransport transport;
+        if (which == 0) transport.status = "";
+        else transport.temperatures = "";
+        MarlinClient client(transport);
+        MarlinStatus status;
+        TEST_ASSERT_FALSE(client.getStatus(status));
+        transport.status = "Not SD printing\nok\n";
+        transport.temperatures = "ok T:20 B:21\n";
+        TEST_ASSERT_TRUE(client.getStatus(status));
+        TEST_ASSERT_FALSE(status.sdPrinting);
+        TEST_ASSERT_FLOAT_WITHIN(0.001, 20, status.nozzleTemperature);
+    }
+}
+
+void testStatusRecoveryRejectsChangedSessionAndUnsafeOperations() {
+    RecoveryTransport transport;
+    transport.timeoutFirmware = true;
+    MarlinClient client(transport);
+    MarlinStatus status;
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    ++transport.generation;
+    const size_t before = transport.writes.size();
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(before, transport.writes.size());
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(before, transport.writes.size());
+
+    RecoveryTransport uploadTransport;
+    MarlinClient uploadClient(uploadTransport);
+    std::string target;
+    TEST_ASSERT_TRUE(uploadClient.beginUpload("test.gcode", target));
+    uploadTransport.closing = "";
+    TEST_ASSERT_FALSE(uploadClient.finishUpload());
+    const size_t uploadBefore = uploadTransport.writes.size();
+    TEST_ASSERT_FALSE(uploadClient.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(uploadBefore, uploadTransport.writes.size());
+
+    RecoveryTransport printTransport;
+    printTransport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    printTransport.start = "";
+    MarlinClient printClient(printTransport);
+    TEST_ASSERT_FALSE(printClient.startPrint("TEST.GCO"));
+    const size_t printBefore = printTransport.writes.size();
+    TEST_ASSERT_FALSE(printClient.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(printBefore, printTransport.writes.size());
+
+    RecoveryTransport errorTransport;
+    errorTransport.status = "Error:printer fault\n";
+    MarlinClient errorClient(errorTransport);
+    TEST_ASSERT_FALSE(errorClient.getStatus(status));
+    const size_t errorBefore = errorTransport.writes.size();
+    TEST_ASSERT_FALSE(errorClient.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(errorBefore, errorTransport.writes.size());
+}
+
+void testStartPrintRequiresIdleListedAndConfirmedFile() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nDIR/TEST.GCO 123 Test.gcode\nEnd file list\nok\n";
+    MarlinClient client(transport);
+    TEST_ASSERT_FALSE(client.startPrint("../TEST.GCO"));
+    TEST_ASSERT_FALSE(client.startPrint(std::string(89, 'A')));
+    TEST_ASSERT_TRUE(transport.writes.empty());
+    TEST_ASSERT_FALSE(client.startPrint("MISSING.GCO"));
+    transport.status = "SD printing byte 1/100\nok\n";
+    TEST_ASSERT_FALSE(client.startPrint("DIR/TEST.GCO"));
+    transport.status = "Not SD printing\nok\n";
+    transport.selection = "File opened: OTHER.GCO Size: 123\nFile selected\nok\n";
+    TEST_ASSERT_FALSE(client.startPrint("DIR/TEST.GCO"));
+    transport.selection = "File opened: TEST.GCO Size: 124\nFile selected\nok\n";
+    TEST_ASSERT_FALSE(client.startPrint("DIR/TEST.GCO"));
+    transport.selection = "File opened: TEST.GCO Size: 123\nok\n";
+    TEST_ASSERT_FALSE(client.startPrint("DIR/TEST.GCO"));
+    for (const auto &command : transport.writes) TEST_ASSERT_TRUE(command != "M24\n");
+    transport.selection = "File opened: TEST.GCO Size: 123\nFile selected\nok\n";
+    TEST_ASSERT_TRUE(client.startPrint("dir/test.gco"));
+    TEST_ASSERT_EQUAL_STRING("M24\n", transport.writes.back().c_str());
+    TEST_ASSERT_EQUAL_STRING("M23 /DIR/TEST.GCO\n", transport.writes[transport.writes.size() - 2].c_str());
+    TEST_ASSERT_EQUAL_STRING("M27\n", transport.writes[transport.writes.size() - 3].c_str());
+}
+
+void testStartPrintStopsIfStatusChanges() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    transport.statusResponses = {"Not SD printing\nok\n", "SD printing byte 1/100\nok\n"};
+    MarlinClient client(transport);
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    for (const auto &command : transport.writes) {
+        TEST_ASSERT_TRUE(command.find("M23 ") != 0 && command != "M24\n");
+    }
+}
+
+void testStartPrintWhenSelectedFileReportsBusy() {
+    SelectedFileTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    transport.selection = "echo: Now fresh file: /TEST.GCO\n"
+                          "File opened: TEST.GCO Size: 123\nFile selected\nok\n";
+    MarlinClient client(transport);
+    TEST_ASSERT_TRUE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(transport.started);
+    TEST_ASSERT_EQUAL_STRING("M23 /TEST.GCO\n", transport.writes[transport.writes.size() - 2].c_str());
+    TEST_ASSERT_EQUAL_STRING("M24\n", transport.writes.back().c_str());
+    MarlinStatus status;
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_TRUE(status.sdPrinting);
+}
+
+void testStartPrintTimeoutIsUncertain() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    transport.start = "";
+    MarlinClient client(transport);
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_NOT_NULL(std::strstr(client.error().c_str(), "may have started"));
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+}
 
 void testPrinterStatusAndTemperatureResponses() {
     FakeTransport transport;
@@ -302,6 +529,85 @@ bool logsContain(const std::vector<std::string> &logs, const std::string &text) 
     return false;
 }
 
+void testPrintDiagnosticsIdentifyEachIdleCheck() {
+    const char *phases[] = {"before_listing", "before_selection"};
+    for (size_t busyAt = 0; busyAt < 2; ++busyAt) {
+        FakeTransport transport;
+        transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+        for (size_t i = 0; i < busyAt; ++i) transport.statusResponses.push_back("Not SD printing\nok\n");
+        transport.statusResponses.push_back("SD printing byte 0/123\nok\n");
+        MarlinClient client(transport);
+        std::vector<std::string> logs;
+        client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+        TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+        TEST_ASSERT_TRUE(logsContain(logs, "print_begin path=TEST.GCO session=1"));
+        TEST_ASSERT_TRUE(logsContain(logs, std::string("print_reply phase=") + phases[busyAt] +
+                                           " command=M27 text=SD printing byte 0/123"));
+        TEST_ASSERT_TRUE(logsContain(logs, std::string("print_idle phase=") + phases[busyAt] +
+                                           " result=failed detail=Printer did not confirm an idle SD state."));
+        TEST_ASSERT_TRUE(logsContain(logs, std::string("print_failed phase=") + phases[busyAt]));
+        TEST_ASSERT_FALSE(logsContain(logs, "command=M24 result=sending"));
+    }
+}
+
+void testPrintDiagnosticsSelectionFailureAndSanitization() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    transport.selection = "File opened: OTHER.GCO Size: 123\nunexpected\t" +
+                          std::string(100, 'x') + "\nFile selected\nok\n";
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_reply phase=selection command=M23 text=File opened: OTHER.GCO Size: 123"));
+    TEST_ASSERT_TRUE(logsContain(logs, "command=M23 text=unexpected?"));
+    TEST_ASSERT_TRUE(logsContain(logs, "..."));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_selection open=no selected=yes"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_failed phase=selection_confirmation"));
+    TEST_ASSERT_FALSE(logsContain(logs, "command=M24 result=sending"));
+}
+
+void testPrintDiagnosticsStartAcknowledgementAndTimeout() {
+    FakeTransport transport;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    TEST_ASSERT_TRUE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_idle phase=before_selection result=idle"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_selection open=yes selected=yes"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_command command=M24 result=sending"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_command command=M24 result=acknowledged"));
+    logs.clear();
+    transport.start = "";
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_failed phase=start detail=Print may have started."));
+    TEST_ASSERT_TRUE(logsContain(logs, "uncertain=yes"));
+    TEST_ASSERT_FALSE(logsContain(logs, "result=acknowledged"));
+}
+
+void testPrintDiagnosticsReportEarlyAndSelectionFailures() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::vector<std::string> logs;
+    client.setDiagnosticLogger([&logs](const std::string &line) { logs.push_back(line); });
+    TEST_ASSERT_FALSE(client.startPrint("BAD\nPATH"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_begin path=BAD?PATH"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_failed phase=preflight"));
+    logs.clear();
+    transport.online = false;
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_failed phase=synchronize detail=Printer is not connected."));
+    logs.clear();
+    transport.online = true;
+    transport.listing = "Begin file list\nTEST.GCO 123\nEnd file list\nok\n";
+    transport.selection = "File opened: TEST.GCO Size: 123";
+    TEST_ASSERT_FALSE(client.startPrint("TEST.GCO"));
+    TEST_ASSERT_TRUE(logsContain(logs, "command=M23 incomplete=File opened: TEST.GCO Size: 123"));
+    TEST_ASSERT_TRUE(logsContain(logs, "print_failed phase=selection_response detail=Printer response timed out."));
+    TEST_ASSERT_FALSE(logsContain(logs, "command=M24 result=sending"));
+}
+
 void testUploadTimeoutDiagnosticsAndAbortFailure() {
     FakeTransport transport;
     MarlinClient client(transport);
@@ -369,6 +675,19 @@ void tearDown() {}
 int main() {
     UNITY_BEGIN();
     RUN_TEST(testPrinterStatusAndTemperatureResponses);
+    RUN_TEST(testStatusTimeoutRecoversWithoutAcceptingStaleReplies);
+    RUN_TEST(testStatusRecoveryWaitsForMarkerAcknowledgement);
+    RUN_TEST(testStatusRecoveryRetriesMarkerDroppedByAbort);
+    RUN_TEST(testStatusTimeoutRecoveryForSdAndTemperature);
+    RUN_TEST(testStatusRecoveryRejectsChangedSessionAndUnsafeOperations);
+    RUN_TEST(testStartPrintRequiresIdleListedAndConfirmedFile);
+    RUN_TEST(testStartPrintStopsIfStatusChanges);
+    RUN_TEST(testStartPrintWhenSelectedFileReportsBusy);
+    RUN_TEST(testStartPrintTimeoutIsUncertain);
+    RUN_TEST(testPrintDiagnosticsIdentifyEachIdleCheck);
+    RUN_TEST(testPrintDiagnosticsSelectionFailureAndSanitization);
+    RUN_TEST(testPrintDiagnosticsStartAcknowledgementAndTimeout);
+    RUN_TEST(testPrintDiagnosticsReportEarlyAndSelectionFailures);
     RUN_TEST(testSuccessfulTransferUsesCheckedLines);
     RUN_TEST(testExampleAndSequentialCheckedLinesAcrossUploads);
     RUN_TEST(testRejectsBusyAndUnconfirmedStatus);

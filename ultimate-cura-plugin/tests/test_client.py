@@ -20,6 +20,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     file_status = 200
     deletes = []
     bulk_deletes = []
+    prints = []
     printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                      "nozzle_temperature": 210.5, "bed_temperature": None}
 
@@ -52,6 +53,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         data = self.rfile.read(int(self.headers["Content-Length"]))
+        if self.path.startswith("/api/files/print?"):
+            self.prints.append(self.path)
+            self.send_response(self.file_status)
+            self.end_headers()
+            self.wfile.write(b"printer busy" if self.file_status != 200 else b"acknowledged")
+            return
         if self.path == "/api/files/delete":
             self.bulk_deletes.append((self.headers, data))
             self.send_response(self.file_status)
@@ -91,6 +98,7 @@ class ClientTests(unittest.TestCase):
         Handler.file_status = 200
         Handler.deletes = []
         Handler.bulk_deletes = []
+        Handler.prints = []
         Handler.printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                                  "nozzle_temperature": 210.5, "bed_temperature": None}
         self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
@@ -186,6 +194,19 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.list_files(self.device), Handler.files)
         client.delete_file(self.device, Handler.files[0]["path"])
         self.assertEqual(Handler.deletes, ["/api/files?path=DIR%2FA%20B.GCO"])
+
+    def test_start_print_uses_path_and_reports_errors(self):
+        client.start_print(self.device, "DIR/FILE.GCO")
+        self.assertEqual(Handler.prints, ["/api/files/print?path=DIR%2FFILE.GCO"])
+        for path in ("../FILE.GCO", "A\nB", "", "/A", "A//B"):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                client.start_print(self.device, path)
+        Handler.file_status = 409
+        with self.assertRaisesRegex(RuntimeError, "printer busy.*may have started"):
+            client.start_print(self.device, "FILE.GCO")
+        with patch.object(client, "_file_request", side_effect=TimeoutError("timeout")):
+            with self.assertRaisesRegex(RuntimeError, "may have started"):
+                client.start_print(self.device, "FILE.GCO")
 
     def test_bulk_delete_sends_paths_and_reports_partial_failure(self):
         client.delete_files(self.device, ["DIR/ONE.GCO", "TWO.GCO"])

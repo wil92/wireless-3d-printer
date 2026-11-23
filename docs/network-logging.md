@@ -49,6 +49,15 @@ device never reaches the configured network. Do not put credentials in logs.
 Printer upload diagnostics include the target DOS filename, HTTP byte and line
 counts, elapsed time, the current printer command and numbered line, response
 or timeout details, USB session changes, and whether an abort closed the file.
+Print-start diagnostics identify each idle check (`before_listing` and
+`before_selection`), bounded M27 and M23 responses,
+file-selection confirmation, the M24 send/acknowledgement, and the phase and
+error on failure. Paths and printer-provided replies are sanitized and limited
+in length; avoid sharing logs if their filenames are sensitive. These logs
+describe the existing checks and do not change the print sequence.
+Status timeout recovery logs the pending command, synchronization marker,
+wait failures and successful recovery. The marker must be echoed and
+acknowledged before other operations resume.
 Progress is logged at most once every 30 seconds; ordinary G-code lines are not
 logged. Unexpected printer responses are bounded and sanitized, but may still
 contain printer-provided information, including G-code echoed by the printer.

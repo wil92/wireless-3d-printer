@@ -173,6 +173,17 @@ def delete_file(device, path):
     _file_request(device, "DELETE", "/api/files?path=" + quote(path, safe=""), 4096)
 
 
+def start_print(device, path):
+    if (not isinstance(path, str) or not re.fullmatch(r"[A-Za-z0-9_.~/-]{1,128}", path)
+            or path.startswith("/") or path.endswith("/") or ".." in path or "//" in path):
+        raise ValueError("Invalid printer file path")
+    try:
+        _file_request(device, "POST", "/api/files/print?path=" + quote(path, safe=""), 4096)
+    except (OSError, http.client.HTTPException, ValueError, RuntimeError) as error:
+        raise RuntimeError("Print request failed: {}. The print may have started; "
+                           "check the printer before retrying.".format(error)) from error
+
+
 def delete_files(device, paths):
     if (not isinstance(paths, list) or not 1 <= len(paths) <= 256
             or any(not isinstance(path, str) or not re.fullmatch(r"[A-Za-z0-9_.~/-]{1,128}", path)

@@ -28,7 +28,7 @@ lists. The tab polls SD activity and nozzle/bed temperatures every 10 seconds.
 Polling runs quietly in the background and keeps the last values visible until
 they change. If a poll fails, the tab reports the error and marks status
 unavailable until a later poll succeeds.
-Deletion is disabled while an SD print is active or paused, or status is
+Printing and deletion are disabled while an SD print is active or paused, or status is
 unavailable. The upload endpoint also rejects active SD prints. **Not SD
 printing does not mean idle:** leveling, motion and jobs streamed by another
 host are not detectable. The operator must ensure the printer stays idle
@@ -38,6 +38,11 @@ Files matching Cura's current job name, either by long name or the shortened
 8.3 upload name, have a subtle row highlight and are labeled **current model
 name**. This is a filename match, not proof that the contents are the same;
 shortened names can collide.
+Use **Print** and confirm to start a listed file. Make sure the printer is
+idle, safe and ready before confirming. The tab immediately refreshes status
+after the request; an acknowledged start does not prove the job started.
+If the response is lost or an error says the print may have started, check the
+printer before retrying. Updated firmware is required.
 Use the light-red **Delete** button and confirm to remove a file by its printer
 path. Select individual files using the first column, or use its header
 checkbox to select or deselect all, then choose **Delete selected** and

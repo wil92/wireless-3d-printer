@@ -56,6 +56,21 @@ and acknowledgement. The operator must keep the printer idle and avoid other
 hosts throughout deletion: M30 closes the current file, and the idle check
 cannot prevent a race with a new print.
 
+[M23](https://marlinfw.org/docs/gcode/M023.html) selects a listed DOS path
+for printing, and [M24](https://marlinfw.org/docs/gcode/M024.html) starts it.
+The device checks M27 before listing and again before selecting; it requires
+M23's matching filename, size, selection message and acknowledgement before
+sending M24. It does not check M27 after M23: this firmware reports a selected,
+open file as paused (`SD printing byte ...`) even before M24 starts it.
+M23 also calls `abortFilePrintNow()`, so the operator must
+ensure the printer is idle and not start another job or use another host during
+the operation. M27 cannot prevent a race or detect non-SD activity. M24's
+acknowledgement alone does not prove a job started. If the response is lost,
+check the printer before retrying. Ensure the printer is ready and safe before
+starting remotely. Starting a print with this sequence has not been tested on
+the physical printer. A failed selection can still leave a file open and
+reported as paused; check the printer before retrying.
+
 Timeouts, malformed responses, unsupported lines, disconnected USB, SD write
 errors and interrupted HTTP uploads fail explicitly. When possible, an
 aborted upload is closed with M29; it can leave a partial file. If M28 or M29
@@ -90,9 +105,17 @@ host. `not_sd_printing` is **not** a guarantee that the printer is idle.
 Uploads and deletes still require two confirmed M27 idle checks, and the
 operator must ensure the printer is idle throughout each operation. Status
 queries cannot prevent a print starting between a check and a file operation.
-Long-running printer commands may delay or prevent a status response. A
-timeout can leave the serial protocol state uncertain and block further
-operations until the ESP32 is restarted; verify printer state before retrying.
+Long-running printer commands may delay or prevent a status response. After a
+read-only status request times out, later requests attempt to resynchronize
+using an [M118](https://marlinfw.org/docs/gcode/M118.html) message with a
+unique marker. The device ignores stale replies and waits for that marker and
+its acknowledgement before issuing further commands. If the printer remains
+busy or an abort discards the queued marker, requests continue to fail and
+later requests retry with a new marker. This requires
+M118 support and the same USB connection; if recovery cannot be confirmed,
+operations stay blocked. A timeout during an upload or another state-changing
+operation is not automatically recovered: verify the printer state and follow
+the recovery instructions above before restarting the ESP32.
 
 The Cura tab polls every 10 seconds while a printer is selected, skipping
 polls while another tab operation is in progress. This balances responsiveness

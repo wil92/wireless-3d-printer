@@ -209,6 +209,39 @@ class LocalPrinterTests(unittest.TestCase):
         delete.assert_called_once_with(self.one, "LONG.GCO")
         self.assertEqual(self.stage.files, [])
 
+    def test_print_is_gated_and_refreshes_status(self):
+        printing = {"printer_name": "Workshop", "printer_status": "sd_printing",
+                    "nozzle_temperature": 200, "bed_temperature": 60}
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "list_files", return_value=self.files), \
+                patch.object(client, "start_print") as start:
+            self.stage.search()
+            self.wait_done()
+            self.stage.printFile("unlisted")
+            start.assert_not_called()
+            with patch.object(client, "printer_status", return_value=printing):
+                self.stage.printFile("LONG.GCO")
+                self.assertFalse(self.stage.canDelete)
+                self.wait_done()
+            start.assert_called_once_with(self.one, "LONG.GCO")
+            self.assertFalse(self.stage.canDelete)
+            self.stage.printFile("LONG.GCO")
+            self.stage.deleteFile("LONG.GCO")
+            self.assertEqual(start.call_count, 1)
+
+    def test_print_failure_invalidates_status_and_reports_error(self):
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "list_files", return_value=self.files), \
+                patch.object(client, "start_print", side_effect=RuntimeError("may have started")):
+            self.stage.search()
+            self.wait_done()
+            with patch.object(client, "printer_status", side_effect=RuntimeError("offline")):
+                self.stage.printFile("LONG.GCO")
+                self.wait_done()
+            self.assertFalse(self.stage.canDelete)
+            self.assertIn("offline", self.stage.status)
+            self.assertIn("may have started", self.stage.status)
+
     def test_errors_are_visible_and_clear_stale_files(self):
         with patch.object(client, "discover", return_value=[self.one]), \
                 patch.object(client, "list_files", return_value=self.files), \
