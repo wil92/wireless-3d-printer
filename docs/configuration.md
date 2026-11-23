@@ -7,10 +7,18 @@ group, copy its example to the corresponding local header and edit that copy:
 cp include/network_config.example.h include/network_config.h
 cp include/access_point_config.example.h include/access_point_config.h
 cp include/usb_config.example.h include/usb_config.h
+cp include/reset_configuration_pin.example.h include/reset_configuration_pin.h
 ```
 
 Local headers under `../include` are ignored by Git. Keep private credentials in
 local headers, not in example files or other tracked files.
+
+## Hardware pins
+
+`reset_configuration_pin.h` defines `RESET_CONFIG_PIN`, which defaults to GPIO 8
+in the example. GPIO 19 and 20 are reserved for native USB and cannot be used
+for the reset button. See [hardware wiring](hardware.md) for wiring and GPIO
+selection guidance.
 
 ## Network
 

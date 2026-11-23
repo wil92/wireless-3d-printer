@@ -6,12 +6,20 @@ size, exposed GPIOs, and connections before use.
 
 | Connection | ESP32-S3 GPIO |
 | --- | --- |
-| Configuration-reset button | 8 |
+| Configuration-reset button | 8 by default (configurable) |
 | Native USB D− (printer host) | 19 |
 | Native USB D+ (printer host) | 20 |
 
-Connect a normally open button between GPIO8 and GND. The firmware enables the
-internal pull-up; pressing the button reads low. See
+Connect a normally open button between the configured reset GPIO and GND. The
+firmware enables the internal pull-up; pressing the button reads low. To change
+the default GPIO 8, copy `include/reset_configuration_pin.example.h` to
+`include/reset_configuration_pin.h` and set `RESET_CONFIG_PIN` to the desired GPIO
+number, then rebuild and flash the firmware. The local header is ignored by Git.
+Choose an exposed GPIO that supports input and an internal pull-up and is safe
+for your board's wiring and boot configuration. GPIO 19 and 20 cannot be used
+for reset. After adding or removing the local header, run
+`pio run -e esp32dev -t clean` before rebuilding so PlatformIO picks up the
+change. See
 [configuration reset](configuration-reset.md).
 
 The firmware no longer drives an SD card or an SD bus switch. With both

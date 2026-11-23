@@ -19,6 +19,8 @@ class ConfigurationHeadersTest(unittest.TestCase):
             "src/main.h",
             "lib/network/access_point_config.h",
             "include/access_point_config.example.h",
+            "include/hardware_pins.h",
+            "include/reset_configuration_pin.example.h",
         ):
             shutil.copyfile(ROOT / name, self.root / name)
 
@@ -31,6 +33,37 @@ class ConfigurationHeadersTest(unittest.TestCase):
             cwd=self.root,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_reset_pin_default_and_local_override(self):
+        header = '#include "include/hardware_pins.h"\n'
+        self.compile(header + """
+            static_assert(HardwarePins::resetConfig == 8, "default reset pin");
+            static_assert(HardwarePins::usbDataMinus == 19, "USB D-");
+            static_assert(HardwarePins::usbDataPlus == 20, "USB D+");
+        """)
+        (self.root / "include/reset_configuration_pin.h").write_text(
+            "#define RESET_CONFIG_PIN 4\n"
+        )
+        self.compile(header + """
+            static_assert(HardwarePins::resetConfig == 4, "custom reset pin");
+            static_assert(HardwarePins::usbDataMinus == 19, "USB D-");
+            static_assert(HardwarePins::usbDataPlus == 20, "USB D+");
+        """)
+
+    def test_reset_pin_cannot_use_native_usb_pins(self):
+        for pin in (19, 20):
+            with self.subTest(pin=pin):
+                (self.root / "include/reset_configuration_pin.h").write_text(
+                    f"#define RESET_CONFIG_PIN {pin}\n"
+                )
+                result = subprocess.run(
+                    ["g++", "-std=c++11", "-x", "c++", "-fsyntax-only", "-"],
+                    input='#include "include/hardware_pins.h"\n',
+                    text=True, capture_output=True, cwd=self.root,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Configuration reset pin must not use the native USB pins",
+                              result.stderr)
 
     def test_usb_defaults_without_local_header(self):
         self.compile("""
