@@ -11,6 +11,7 @@ public:
     std::deque<char> response;
     std::vector<std::string> writes;
     std::string status = "Not SD printing\nok\n";
+    std::string temperatures = "ok T:205.25 /210.00 B:60.50 /60.00\n";
     std::string listing = "Begin file list\nEnd file list\nok\n";
     std::string opening;
     std::string closing = "Done saving file\nok\n";
@@ -27,6 +28,7 @@ public:
         std::string reply;
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
         else if (command == "M27\n") reply = status;
+        else if (command == "M105\n") reply = temperatures;
         else if (command == "M20 L\n") reply = listing;
         else if (command.find("M28 ") == 0) {
             reply = opening.empty() ? "Writing to file: " + command.substr(5) + "ok\n" : opening;
@@ -47,6 +49,31 @@ public:
     unsigned long now() override { return time; }
     uint32_t session() override { return generation; }
 };
+
+void testPrinterStatusAndTemperatureResponses() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    MarlinStatus status;
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_FALSE(status.sdPrinting);
+    TEST_ASSERT_TRUE(status.hasNozzleTemperature);
+    TEST_ASSERT_TRUE(status.hasBedTemperature);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 205.25, status.nozzleTemperature);
+    TEST_ASSERT_FLOAT_WITHIN(0.001, 60.5, status.bedTemperature);
+    transport.status = "SD printing byte 10/100\nok\n";
+    transport.temperatures = "T:20.0 /0\nok\n";
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_TRUE(status.sdPrinting);
+    TEST_ASSERT_FALSE(status.hasBedTemperature);
+    transport.temperatures = "ok T:nan B:40\n";
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.temperatures = "ok T:20 B:broken\n";
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.status = "Not SD printing\nSD printing byte 1/100\nok\n";
+    TEST_ASSERT_FALSE(client.getStatus(status));
+    transport.status = "ok\n";
+    TEST_ASSERT_FALSE(client.getStatus(status));
+}
 
 class StrictUploadTransport : public FakeTransport {
 public:
@@ -341,6 +368,7 @@ void setUp() {}
 void tearDown() {}
 int main() {
     UNITY_BEGIN();
+    RUN_TEST(testPrinterStatusAndTemperatureResponses);
     RUN_TEST(testSuccessfulTransferUsesCheckedLines);
     RUN_TEST(testExampleAndSequentialCheckedLinesAcrossUploads);
     RUN_TEST(testRejectsBusyAndUnconfirmedStatus);

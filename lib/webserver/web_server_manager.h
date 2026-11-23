@@ -36,6 +36,8 @@ private:
 
     void handleFiles(WiFiClient *client);
 
+    void handlePrinterStatus(WiFiClient *client);
+
     void handleDelete(WiFiClient *client, const String &message);
 
     void handleBulkDelete(WiFiClient *client);

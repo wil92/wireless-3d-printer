@@ -22,9 +22,19 @@ except ImportError:
 @unittest.skipIf(local_printer is None, "Cura/Uranium and PyQt6 are required")
 class LocalPrinterQmlTests(unittest.TestCase):
     def test_stage_qml_loads_and_buttons_drive_management(self):
-        app = QApplication.instance() or QApplication([])
-        with patch.object(local_printer.Application, "getInstance", return_value=Mock()):
+        self.app = QApplication.instance() or QApplication([])
+        app = self.app
+        application = Mock()
+        application.getPrintInformation.return_value.jobName = ""
+        status = patch.object(client, "printer_status", return_value={
+            "printer_name": "Printer", "printer_status": "not_sd_printing",
+            "nozzle_temperature": 20, "bed_temperature": 21})
+        status.start()
+        self.addCleanup(status.stop)
+        with patch.object(local_printer.Application, "getInstance", return_value=application):
             stage = local_printer.LocalPrinterStage()
+            stage._on_engine_created()
+        self.addCleanup(stage._timer.stop)
 
         class Controller(QObject):
             @pyqtProperty(QObject, constant=True)
@@ -78,7 +88,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
 
         def wait_done():
             deadline = time.monotonic() + 5
-            while stage.busy and time.monotonic() < deadline:
+            while (stage.busy or stage._polling) and time.monotonic() < deadline:
                 app.processEvents()
                 time.sleep(0.005)
             app.processEvents()
@@ -91,7 +101,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
                 patch.object(client, "delete_file") as delete:
             root.findChild(QObject, "searchPrinters").clicked.emit()
             wait_done()
-            self.assertEqual(stage.files, files)
+            self.assertEqual(stage.files, [dict(files[0], currentModel=False)])
             file_list = root.findChild(QObject, "printerFiles")
             assert_centered()
             def find_visual(item, name):
@@ -106,6 +116,10 @@ class LocalPrinterQmlTests(unittest.TestCase):
             button = find_visual(file_list, "deleteFile")
             self.assertIsNotNone(button, "list count={}, size={}x{}".format(
                 file_list.property("count"), file_list.property("width"), file_list.property("height")))
+            delete_background = find_visual(button, "deleteFileBackground")
+            self.assertEqual(delete_background.property("color").name(), "#f5c2c7")
+            self.assertEqual(button.property("contentItem").property("color").name(), "#3d1a1e")
+            self.assertTrue(button.property("enabled"))
             header = root.findChild(QObject, "fileTableHeader")
             headers = [item for item in header.childItems() if item.objectName() == "fileHeaderCell"]
             self.assertEqual(len(headers), 4)
@@ -136,6 +150,9 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertFalse(image.isNull())
             border = headers[1].mapToScene(QPointF(0, headers[1].property("height") / 2))
             scale = image.devicePixelRatio()
+            button_fill = button.mapToScene(QPointF(8, 8))
+            self.assertEqual(image.pixelColor(round(button_fill.x() * scale),
+                                              round(button_fill.y() * scale)).name(), "#f5c2c7")
             self.assertEqual(image.pixelColor(round(border.x() * scale), round(border.y() * scale)),
                              QColor("#000000"))
             row_border = find_visual(file_list, "fileSizeCell").mapToScene(QPointF(0, 20))
@@ -145,8 +162,22 @@ class LocalPrinterQmlTests(unittest.TestCase):
                                                      handle.property("height") / 2))
             self.assertEqual(image.pixelColor(round(handle_center.x() * scale), round(handle_center.y() * scale)),
                              QColor("#2345aa"))
-            button.clicked.emit()
             dialog = root.findChild(QObject, "deleteDialog")
+            stage._printer_status["printer_status"] = "sd_printing"
+            stage.changed.emit()
+            app.processEvents()
+            self.assertFalse(button.property("enabled"))
+            self.assertNotEqual(delete_background.property("color").name(), "#f5c2c7")
+            button_position = button.mapToScene(QPointF(button.property("width") / 2,
+                                                       button.property("height") / 2)).toPoint()
+            QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, button_position)
+            self.assertFalse(dialog.property("visible"))
+            stage._printer_status["printer_status"] = "not_sd_printing"
+            stage.changed.emit()
+            app.processEvents()
+            QTest.mouseClick(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, button_position)
+            app.processEvents()
+            self.assertTrue(dialog.property("visible"))
             self.assertEqual(dialog.property("filePath"), "SHORT.GCO")
             dialog.accept()
             wait_done()
@@ -154,12 +185,48 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertEqual(file_list.property("count"), 0)
             self.assertTrue(scrollbar.property("visible"))
             self.assertTrue(handle.property("visible"))
+        application.getPrintInformation.return_value.jobName = "short"
         with patch.object(client, "discover", return_value=[device]), \
                 patch.object(client, "list_files", side_effect=[files + [
                     {"name": "Second", "path": "SECOND.GCO", "size": 21}], []]), \
                 patch.object(client, "delete_files") as delete_many:
             root.findChild(QObject, "searchPrinters").clicked.emit()
             wait_done()
+
+            def rows():
+                return sorted((item for item in file_list.property("contentItem").childItems()
+                               if item.objectName() == "fileRow"), key=lambda item: item.property("y"))
+
+            def assert_highlight(matched_index):
+                current_rows = rows()
+                self.assertEqual(len(current_rows), 2)
+                background = QColor("#ffffff")
+                for index, row in enumerate(current_rows):
+                    colors = [find_visual(row, name).property("color") for name in
+                              ("fileSelectCell", "fileNameCell", "fileSizeCell", "fileActionCell")]
+                    self.assertTrue(all(color == colors[0] for color in colors))
+                    if index == matched_index:
+                        difference = background.red() - colors[0].red()
+                        self.assertGreaterEqual(difference, 5)
+                        self.assertLessEqual(difference, 30)
+                    else:
+                        self.assertEqual(colors[0], background)
+                image = window.grabWindow()
+                for row in current_rows:
+                    cell = find_visual(row, "fileNameCell")
+                    point = cell.mapToScene(QPointF(3, 3))
+                    scale = image.devicePixelRatio()
+                    self.assertEqual(image.pixelColor(round(point.x() * scale), round(point.y() * scale)).name(),
+                                     cell.property("color").name())
+                    border = cell.mapToScene(QPointF(0, 20))
+                    self.assertEqual(image.pixelColor(round(border.x() * scale), round(border.y() * scale)),
+                                     QColor("#000000"))
+
+            assert_highlight(0)
+            application.getPrintInformation.return_value.jobName = "second"
+            stage.filesChanged.emit()
+            app.processEvents()
+            assert_highlight(1)
 
             def click_item(item):
                 position = item.mapToScene(QPointF(item.property("width") / 2,
@@ -198,7 +265,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertEqual(stage.printerName, "Other")
         stage._files = [{"name": "Part {}".format(i), "path": "{}.GCO".format(i), "size": i}
                         for i in range(100)]
-        stage.changed.emit()
+        stage.filesChanged.emit()
         app.processEvents()
         self.assertEqual(file_list.property("count"), 100)
         self.assertGreater(file_list.property("contentHeight"), file_list.property("height"))
@@ -209,6 +276,14 @@ class LocalPrinterQmlTests(unittest.TestCase):
         file_list.setProperty("contentY", file_list.property("contentHeight") - file_list.property("height"))
         app.processEvents()
         self.assertGreater(file_list.property("contentY"), 0)
+        position = file_list.property("contentY")
+        with patch.object(client, "printer_status", return_value={
+                "printer_name": "Other", "printer_status": "not_sd_printing",
+                "nozzle_temperature": 30, "bed_temperature": 40}):
+            stage._poll_status()
+            wait_done()
+        self.assertIn("30.0 °C", stage.printerStatus)
+        self.assertAlmostEqual(file_list.property("contentY"), position, delta=1)
         root.setProperty("width", 480)
         root.setProperty("height", 420)
         window.resize(480, 420)

@@ -24,7 +24,21 @@ Choose **LOCAL PRINTER** to manage files without starting an upload. Select
 If several are found, choose one and click **Connect**. The tab shows the
 device name and the printer's file names and sizes. Use **Refresh files** to
 reload the list; the bordered table has a visible vertical scrollbar for long
-lists. Use **Delete** and confirm to remove a file by its printer
+lists. The tab polls SD activity and nozzle/bed temperatures every 10 seconds.
+Polling runs quietly in the background and keeps the last values visible until
+they change. If a poll fails, the tab reports the error and marks status
+unavailable until a later poll succeeds.
+Deletion is disabled while an SD print is active or paused, or status is
+unavailable. The upload endpoint also rejects active SD prints. **Not SD
+printing does not mean idle:** leveling, motion and jobs streamed by another
+host are not detectable. The operator must ensure the printer stays idle
+throughout file operations. See [status monitoring](marlin-usb.md#status-monitoring).
+
+Files matching Cura's current job name, either by long name or the shortened
+8.3 upload name, have a subtle row highlight and are labeled **current model
+name**. This is a filename match, not proof that the contents are the same;
+shortened names can collide.
+Use the light-red **Delete** button and confirm to remove a file by its printer
 path. Select individual files using the first column, or use its header
 checkbox to select or deselect all, then choose **Delete selected** and
 confirm. Bulk deletion stops at the first error and may already have removed

@@ -21,6 +21,13 @@ To compare local copies of files, see the
 
 ## HTTP API
 
+- `GET /api/status` returns e.g.
+  `{"printer_name":"Workshop","nozzle_temperature":205.25,"bed_temperature":60.50,"printer_status":"not_sd_printing"}`.
+  Temperatures are degrees Celsius; an unavailable bed temperature is `null`.
+  The status is `not_sd_printing` or `sd_printing` (including paused SD jobs).
+  It does **not** detect leveling or other non-SD activity. It returns 404
+  during setup and 503 if status cannot be established. See
+  [Marlin USB integration](marlin-usb.md#status-monitoring).
 - `GET /api/files` returns a JSON array such as
   `[{"name":"My print.gcode","size":123,"path":"MYPRIN~1.GCO"}]`.
   `name` is the long display name when the printer supports `M20 L`, falling

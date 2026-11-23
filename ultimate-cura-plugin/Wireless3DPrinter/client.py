@@ -3,6 +3,7 @@
 import http.client
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -15,6 +16,7 @@ CONNECT_TIMEOUT = 5
 UPLOAD_TIMEOUT = 600
 FILE_OPERATION_TIMEOUT = 120
 MAX_FILE_LIST_BYTES = 2 * 1024 * 1024
+STATUS_INTERVAL_MS = 10000
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,34 @@ def list_files(device):
                 or type(entry.get("size")) is not int or entry["size"] < 0):
             raise ValueError("Invalid printer file entry")
     return files
+
+
+def printer_status(device):
+    payload = _file_request(device, "GET", "/api/status", 4096)
+    data = json.loads(payload)
+    if (not isinstance(data, dict) or not isinstance(data.get("printer_name"), str)
+            or not data["printer_name"]
+            or data.get("printer_status") not in ("sd_printing", "not_sd_printing")
+            or any(value is not None and
+                   (type(value) not in (int, float) or not math.isfinite(value))
+                   for value in (data.get("nozzle_temperature"), data.get("bed_temperature")))
+            or "nozzle_temperature" not in data or "bed_temperature" not in data):
+        raise ValueError("Invalid printer status")
+    return data
+
+
+def printer_filename(name):
+    name = safe_filename(name)[:-6]
+    return "".join(c.upper() if c.isascii() and (c.isalnum() or c in "_-") else "_"
+                   for c in name)[:8] + ".GCO"
+
+
+def matches_model(entry, model_name):
+    if not isinstance(model_name, str) or not model_name.strip():
+        return False
+    expected = safe_filename(model_name)
+    return (entry["name"].casefold() == expected.casefold()
+            or entry["path"].casefold() == printer_filename(model_name).casefold())
 
 
 def delete_file(device, path):

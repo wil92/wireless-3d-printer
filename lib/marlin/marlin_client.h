@@ -23,12 +23,21 @@ struct MarlinFile {
     std::string path;
 };
 
+struct MarlinStatus {
+    bool sdPrinting = false;
+    bool hasNozzleTemperature = false;
+    bool hasBedTemperature = false;
+    double nozzleTemperature = 0;
+    double bedTemperature = 0;
+};
+
 class MarlinClient {
 public:
     explicit MarlinClient(MarlinTransport &transport);
     void setDiagnosticLogger(std::function<void(const std::string &)> logger);
     bool listFiles(std::vector<MarlinFile> &files);
     bool deleteFile(const std::string &path);
+    bool getStatus(MarlinStatus &status);
     bool beginUpload(const std::string &filename, std::string &target);
     bool uploadLine(const std::string &line);
     bool finishUpload();
@@ -45,6 +54,7 @@ private:
     bool waitOk(bool *matched = nullptr, const char *expected = nullptr);
     bool synchronize();
     bool checkIdle();
+    bool readSdStatus(bool &printing);
     bool fail(const char *message);
     bool numbered(const std::string &command);
     void diagnostic(const std::string &message);

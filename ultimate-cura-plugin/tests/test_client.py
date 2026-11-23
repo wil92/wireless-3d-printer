@@ -20,11 +20,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
     file_status = 200
     deletes = []
     bulk_deletes = []
+    printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
+                     "nozzle_temperature": 210.5, "bed_temperature": None}
 
     def log_message(self, *args):
         pass
 
     def do_GET(self):
+        if self.path == "/api/status":
+            data = json.dumps(self.printer_state).encode()
+            self.send_response(self.file_status)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if self.path == "/api/files":
             data = json.dumps(self.files).encode()
             self.send_response(self.file_status)
@@ -82,6 +91,8 @@ class ClientTests(unittest.TestCase):
         Handler.file_status = 200
         Handler.deletes = []
         Handler.bulk_deletes = []
+        Handler.printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
+                                 "nozzle_temperature": 210.5, "bed_temperature": None}
         self.device = client.Device("wireless-3d-printer-123", "Workshop", "127.0.0.1", self.server.server_port)
 
     def test_filename_is_safe_and_has_one_extension(self):
@@ -89,6 +100,20 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.safe_filename("..."), "untitled_print.gcode")
         self.assertEqual(client.safe_filename("example.gcode"), "example.gcode")
         self.assertEqual(len(client.safe_filename("a" * 200)), 106)
+
+    def test_status_validation_and_filename_matching(self):
+        self.assertEqual(client.printer_status(self.device), Handler.printer_state)
+        for key, value in (("printer_status", "idle"), ("nozzle_temperature", True),
+                           ("bed_temperature", float("nan")), ("printer_name", "")):
+            original = Handler.printer_state[key]
+            Handler.printer_state[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                client.printer_status(self.device)
+            Handler.printer_state[key] = original
+        self.assertTrue(client.matches_model({"name": "other", "path": "MY_PRINT.GCO"}, "my print"))
+        self.assertTrue(client.matches_model({"name": "my print.gcode", "path": "MY~1.GCO"}, "my print"))
+        self.assertFalse(client.matches_model({"name": "other", "path": "OTHER.GCO"}, "my print"))
+        self.assertFalse(client.matches_model({"name": "untitled_print.gcode", "path": "UNTITLED.GCO"}, ""))
 
     def test_identity_validation_and_upload(self):
         self.assertEqual(client.device_at("127.0.0.1", self.server.server_port), self.device)

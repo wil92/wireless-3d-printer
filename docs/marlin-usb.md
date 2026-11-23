@@ -72,3 +72,31 @@ revision `a9fb83ac8b85868fd2978f96841c325ec3ad5a01`:
 and [M27](https://github.com/classicrocker883/MRiscoCProUI/blob/a9fb83ac8b85868fd2978f96841c325ec3ad5a01/Marlin/src/gcode/sd/M27.cpp).
 Actual behavior depends on the firmware build and configuration installed on
 the printer.
+
+## Status monitoring
+
+`GET /api/status` queries [M27](https://marlinfw.org/docs/gcode/M027.html)
+for SD activity and [M105](https://marlinfw.org/docs/gcode/M105.html) for
+temperatures after synchronizing with M115. It reports `sd_printing` for
+active **or paused** SD jobs and `not_sd_printing` for Marlin's confirmed
+`Not SD printing` response. A missing, conflicting, malformed or timed-out
+response fails instead of claiming the printer is idle. Nozzle and bed
+temperatures are measured values in degrees Celsius; an absent bed sensor is
+reported as `null`. The printer name is the device name configured in setup,
+not the printer's firmware model name.
+
+M27 does not reveal leveling, homing, movement, or jobs streamed by another
+host. `not_sd_printing` is **not** a guarantee that the printer is idle.
+Uploads and deletes still require two confirmed M27 idle checks, and the
+operator must ensure the printer is idle throughout each operation. Status
+queries cannot prevent a print starting between a check and a file operation.
+Long-running printer commands may delay or prevent a status response. A
+timeout can leave the serial protocol state uncertain and block further
+operations until the ESP32 is restarted; verify printer state before retrying.
+
+The Cura tab polls every 10 seconds while a printer is selected, skipping
+polls while another tab operation is in progress. This balances responsiveness
+with serial/HTTP traffic; Marlin's M27 and M155 examples use four-second
+auto-report intervals, but those optional auto-report features may not be
+enabled and can interleave with file transfer responses. The ESP32 instead
+requests M105 and M27 on demand and never polls during an upload.

@@ -89,6 +89,7 @@ public:
         writes.push_back(command);
         if (command == "M115\n") reply = "FIRMWARE_NAME:Marlin\nok\n";
         else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
+        else if (command == "M105\n") reply = "ok T:205.25 /210 B:60.5 /60\n";
         else if (command == "M20 L\n") reply = "Begin file list\n" + listing + "End file list\nok\n";
         else if (command.find("M28 ") == 0) reply = "Writing to file: NEW.GCO\nok\n";
         else if (command == "M29\n") reply = "Done saving file\nok\n";
@@ -107,6 +108,37 @@ public:
     unsigned long now() override { return time; }
     uint32_t session() override { return 1; }
 };
+
+void testPrinterStatusEndpoint() {
+    FlashManager flash;
+    flash.isSetup = true;
+    flash.deviceName = "Printer \"A\"";
+    PrinterTestTransport transport;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient request;
+    request.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&request, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(request.response.find("\"printer_name\":\"Printer \\\"A\\\"\"") != std::string::npos);
+    TEST_ASSERT_TRUE(request.response.find("\"nozzle_temperature\":205.25,\"bed_temperature\":60.50") != std::string::npos);
+    TEST_ASSERT_TRUE(request.response.find("\"printer_status\":\"not_sd_printing\"") != std::string::npos);
+    transport.busy = true;
+    SetupConnectionClient busy;
+    busy.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&busy, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(busy.response.find("\"printer_status\":\"sd_printing\"") != std::string::npos);
+    flash.isSetup = false;
+    SetupConnectionClient setup;
+    manager.checkEndpoints(&setup, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(setup.response.find("404 Not Found") != std::string::npos);
+    flash.isSetup = true;
+    manager.printer = nullptr;
+    SetupConnectionClient offline;
+    manager.checkEndpoints(&offline, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(offline.response.find("503 Service Unavailable") != std::string::npos);
+}
 
 void testPrinterListAndRawUpload() {
     FlashManager flash;
@@ -717,6 +749,7 @@ void tearDown(void) {}
 
 int runUnitTests() {
     UNITY_BEGIN();
+    RUN_TEST(testPrinterStatusEndpoint);
     RUN_TEST(testDeviceInfoIsJson);
     RUN_TEST(testPrinterListAndRawUpload);
     RUN_TEST(testPrinterDeleteEndpoint);

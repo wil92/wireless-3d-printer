@@ -97,7 +97,16 @@ Rectangle {
         }
         Label {
             visible: root.stage.printerName !== ""
-            text: "Keep the printer idle during file operations."
+            text: root.stage.printerStatus
+            color: UM.Theme.getColor("text")
+            font: UM.Theme.getFont("medium")
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.Wrap
+            Layout.fillWidth: true
+        }
+        Label {
+            visible: root.stage.printerName !== ""
+            text: "SD status only: keep the printer idle and do not start a job during file operations."
             color: UM.Theme.getColor("text")
             font: UM.Theme.getFont("medium")
             horizontalAlignment: Text.AlignHCenter
@@ -107,7 +116,7 @@ Rectangle {
         Button {
             objectName: "deleteSelected"
             visible: root.stage.selectedCount > 0
-            enabled: !root.stage.busy && root.stage.selectedCount > 0
+            enabled: root.stage.canDelete && root.stage.selectedCount > 0
             text: "Delete selected (" + root.stage.selectedCount + ")"
             font: UM.Theme.getFont("medium")
             Layout.alignment: Qt.AlignHCenter
@@ -206,14 +215,21 @@ Rectangle {
                         }
                     }
                     delegate: RowLayout {
+                        id: fileRow
+                        objectName: "fileRow"
                         width: fileTable.dataWidth
                         height: 44
                         spacing: 0
+                        property color textColor: UM.Theme.getColor("text")
+                        property color rowColor: modelData.currentModel ?
+                            Qt.tint(UM.Theme.getColor("main_background"),
+                                    Qt.rgba(textColor.r, textColor.g, textColor.b, 0.08)) :
+                            UM.Theme.getColor("main_background")
                         Rectangle {
                             objectName: "fileSelectCell"
                             Layout.preferredWidth: fileTable.selectWidth
                             Layout.fillHeight: true
-                            color: UM.Theme.getColor("main_background")
+                            color: fileRow.rowColor
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             CheckBox {
@@ -229,7 +245,7 @@ Rectangle {
                             Layout.fillWidth: true
                             Layout.minimumWidth: 0
                             Layout.fillHeight: true
-                            color: UM.Theme.getColor("main_background")
+                            color: fileRow.rowColor
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             Label {
@@ -237,7 +253,7 @@ Rectangle {
                                 anchors.leftMargin: 8
                                 anchors.rightMargin: 8
                                 verticalAlignment: Text.AlignVCenter
-                                text: modelData.name
+                                text: modelData.name + (modelData.currentModel ? "  (current model name)" : "")
                                 color: UM.Theme.getColor("text")
                                 font: UM.Theme.getFont("medium")
                                 elide: Text.ElideRight
@@ -247,7 +263,7 @@ Rectangle {
                             objectName: "fileSizeCell"
                             Layout.preferredWidth: fileTable.sizeWidth
                             Layout.fillHeight: true
-                            color: UM.Theme.getColor("main_background")
+                            color: fileRow.rowColor
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             Label {
@@ -265,16 +281,38 @@ Rectangle {
                             objectName: "fileActionCell"
                             Layout.preferredWidth: fileTable.actionWidth
                             Layout.fillHeight: true
-                            color: UM.Theme.getColor("main_background")
+                            color: fileRow.rowColor
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             Button {
+                                id: deleteButton
                                 anchors.fill: parent
                                 anchors.margins: 3
                                 objectName: "deleteFile"
                                 text: "Delete"
                                 font: UM.Theme.getFont("medium")
-                                enabled: !root.stage.busy
+                                enabled: root.stage.canDelete
+                                background: Rectangle {
+                                    objectName: "deleteFileBackground"
+                                    radius: 4
+                                    color: !deleteButton.enabled ?
+                                           Qt.tint(fileRow.rowColor, Qt.rgba(0.9, 0.3, 0.3, 0.12)) :
+                                           deleteButton.down ? "#e99ba4" :
+                                           deleteButton.hovered ? "#efadb4" : "#f5c2c7"
+                                    border.color: deleteButton.visualFocus ? "#813943" :
+                                                  deleteButton.enabled ? "#c66a73" :
+                                                  UM.Theme.getColor("thick_lining")
+                                    border.width: deleteButton.visualFocus ? 2 : 1
+                                }
+                                contentItem: Text {
+                                    text: deleteButton.text
+                                    font: deleteButton.font
+                                    color: deleteButton.enabled ? "#3d1a1e" : UM.Theme.getColor("text")
+                                    opacity: deleteButton.enabled ? 1 : 0.65
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                }
                                 onClicked: {
                                     deleteDialog.filePath = modelData.path
                                     deleteDialog.fileName = modelData.name

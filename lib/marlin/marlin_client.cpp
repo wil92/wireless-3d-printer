@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <cmath>
 #include <limits>
 
 namespace {
@@ -37,6 +38,22 @@ std::string logText(const std::string &text) {
     }
     if (text.size() > 80) result += "...";
     return result;
+}
+
+enum class TemperatureResult { missing, invalid, valid };
+
+TemperatureResult temperature(const std::string &line, const char *key, double &value) {
+    size_t pos = line.find(key);
+    while (pos != std::string::npos && pos != 0 && line[pos - 1] != ' ') {
+        pos = line.find(key, pos + 1);
+    }
+    if (pos == std::string::npos) return TemperatureResult::missing;
+    const char *start = line.c_str() + pos + std::char_traits<char>::length(key);
+    char *end = nullptr;
+    value = std::strtod(start, &end);
+    return end != start && std::isfinite(value) && value >= -10000 && value <= 10000 &&
+           (*end == '\0' || *end == ' ' || *end == '/')
+               ? TemperatureResult::valid : TemperatureResult::invalid;
 }
 }
 
@@ -208,6 +225,12 @@ bool MarlinClient::synchronize() {
 }
 
 bool MarlinClient::checkIdle() {
+    bool printing = false;
+    return readSdStatus(printing) &&
+           (!printing || fail("Printer did not confirm an idle SD state."));
+}
+
+bool MarlinClient::readSdStatus(bool &printing) {
     if (!sendCommand("M27")) return false;
     bool idle = false, busy = false;
     const unsigned long start = transport_.now();
@@ -224,11 +247,48 @@ bool MarlinClient::checkIdle() {
             return fail("Printer rejected the status request.");
         }
         if (isOk(line)) {
-            return idle && !busy ? true : fail("Printer did not confirm an idle SD state.");
+            if (idle == busy) return fail("Printer did not confirm an SD state.");
+            printing = busy;
+            return true;
         }
     }
     uncertain_ = true;
     return fail("Printer status timed out.");
+}
+
+bool MarlinClient::getStatus(MarlinStatus &status) {
+    status = MarlinStatus();
+    error_.clear();
+    if (uploading_ || uncertain_) return fail("Printer transfer state is uncertain.");
+    if (!synchronize() || !readSdStatus(status.sdPrinting) || !sendCommand("M105")) return false;
+    const unsigned long start = transport_.now();
+    while (transport_.now() - start < response_timeout_ms) {
+        std::string line;
+        if (!readLine(line, response_timeout_ms - (transport_.now() - start))) return false;
+        if (startsWith(line, "Error:") || startsWith(line, "error:") ||
+            startsWith(line, "Resend:") || startsWith(line, "rs ")) {
+            uncertain_ = true;
+            return fail("Printer rejected the temperature request.");
+        }
+        double value;
+        const TemperatureResult nozzle = temperature(line, "T:", value);
+        if (nozzle == TemperatureResult::invalid) return fail("Invalid nozzle temperature.");
+        if (nozzle == TemperatureResult::valid) {
+            status.nozzleTemperature = value;
+            status.hasNozzleTemperature = true;
+        }
+        const TemperatureResult bed = temperature(line, "B:", value);
+        if (bed == TemperatureResult::invalid) return fail("Invalid bed temperature.");
+        if (bed == TemperatureResult::valid) {
+            status.bedTemperature = value;
+            status.hasBedTemperature = true;
+        }
+        if (isOk(line)) {
+            return status.hasNozzleTemperature || fail("Printer did not report nozzle temperature.");
+        }
+    }
+    uncertain_ = true;
+    return fail("Printer temperature request timed out.");
 }
 
 bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {

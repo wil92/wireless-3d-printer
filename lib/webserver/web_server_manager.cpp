@@ -8,6 +8,7 @@
 #include "../debug_log/debug_log.h"
 
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <algorithm>
 #include <cctype>
@@ -112,6 +113,10 @@ bool WebServerManager::checkEndpoints(WiFiClient *client,
     }
     if (message.startsWith("GET /api/files HTTP/")) {
         handleFiles(client);
+        return false;
+    }
+    if (message.startsWith("GET /api/status HTTP/")) {
+        handlePrinterStatus(client);
         return false;
     }
     if (message.startsWith("POST /upload?") && message.indexOf(" HTTP/") != -1) {
@@ -225,6 +230,42 @@ void WebServerManager::handleFiles(WiFiClient *client) {
                 ",\"path\":\"" + escapeJson(path) + "\"}";
     }
     json += "]";
+    client->print(String("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                         "Cache-Control: no-store\r\nContent-Length: ") +
+                  String(json.length()) + "\r\nConnection: close\r\n\r\n" + json);
+    client->stop();
+}
+
+void WebServerManager::handlePrinterStatus(WiFiClient *client) {
+    if (!flashManager->isSetup || !printer) {
+        sendTextResponse(client, flashManager->isSetup ? 503 : 404, "Printer status is unavailable.");
+        client->stop();
+        return;
+    }
+    String header;
+    size_t bytes = 0;
+    do {
+        if (!readHttpLine(client, header, 512) || (bytes += header.length()) > 4096) {
+            sendTextResponse(client, 400, "Invalid request headers.");
+            client->stop();
+            return;
+        }
+    } while (header.length());
+
+    MarlinStatus status;
+    if (!printer->getStatus(status)) {
+        DebugLog.println(String("Printer status failed: ") + printer->error().c_str());
+        sendTextResponse(client, 503, String(printer->error().c_str()));
+        client->stop();
+        return;
+    }
+    char nozzle[32], bed[32];
+    std::snprintf(nozzle, sizeof(nozzle), "%.2f", status.nozzleTemperature);
+    std::snprintf(bed, sizeof(bed), "%.2f", status.bedTemperature);
+    const String json = String("{\"printer_name\":\"") + escapeJson(flashManager->deviceName) +
+        "\",\"nozzle_temperature\":" + (status.hasNozzleTemperature ? String(nozzle) : String("null")) +
+        ",\"bed_temperature\":" + (status.hasBedTemperature ? String(bed) : String("null")) +
+        ",\"printer_status\":\"" + (status.sdPrinting ? "sd_printing" : "not_sd_printing") + "\"}";
     client->print(String("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
                          "Cache-Control: no-store\r\nContent-Length: ") +
                   String(json.length()) + "\r\nConnection: close\r\n\r\n" + json);
