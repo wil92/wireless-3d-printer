@@ -196,6 +196,40 @@ class LocalPrinterTests(unittest.TestCase):
             listing.assert_called_once_with(self.two)
         self.assertEqual(self.stage.printerName, "Other")
 
+    def test_save_option_tracks_local_printer_selection_and_search(self):
+        from Wireless3DPrinter import output_device
+        manager = Mock()
+        application = Mock()
+        application.getOutputDeviceManager.return_value = manager
+        with patch("UM.OutputDevice.OutputDevicePlugin.Application.getInstance", return_value=application):
+            plugin = output_device.Wireless3DPrinterPlugin(self.stage)
+        plugin.start()
+        self.addCleanup(plugin.stop)
+        manager.addOutputDevice.assert_not_called()
+        with patch.object(client, "discover", return_value=[self.one, self.two]), \
+                patch.object(client, "list_files", return_value=self.files):
+            self.stage.search()
+            self.wait_done()
+            manager.addOutputDevice.assert_not_called()
+            self.stage.connectPrinter(1)
+            self.wait_done()
+            manager.addOutputDevice.assert_called_once()
+            self.assertEqual(self.stage.selected_device, self.two)
+            self.stage.connectPrinter(0)
+            self.wait_done()
+            self.assertEqual(self.stage.selected_device, self.one)
+            self.assertEqual(manager.addOutputDevice.call_count, 1)
+            self.stage.search()
+            manager.removeOutputDevice.assert_called_once_with("wireless_3d_printer")
+            self.wait_done()
+            self.assertIsNone(self.stage.selected_device)
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "list_files", return_value=self.files):
+            self.stage.search()
+            self.wait_done()
+            self.assertEqual(self.stage.selected_device, self.one)
+            self.assertEqual(manager.addOutputDevice.call_count, 2)
+
     def test_delete_uses_listed_path_and_refreshes(self):
         with patch.object(client, "discover", return_value=[self.one]), \
                 patch.object(client, "list_files", side_effect=[self.files, []]), \

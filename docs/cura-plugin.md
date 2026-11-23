@@ -7,10 +7,12 @@ versions use different discovery identifiers and cannot discover renamed
 firmware. Remove the old `RemoteSD` plugin directory before installing the
 new plugin so Cura does not show both versions.
 
-After slicing, select **Save to wireless-3d-printer** from the arrow beside Cura's save
-button, then click the save button. The plugin scans for
-`_wireless-3dp._tcp.local.`, verifies `/api/device`, and asks which device to use
-when more than one is found. Confirm the destination before uploading.
+First select a device in the **LOCAL PRINTER** tab. After slicing, select
+**Save to wireless-3d-printer** from the arrow beside Cura's save button,
+then click the save button. This option is available only while a printer is
+selected. Confirm the selected device's name, ID, and address before uploading.
+The plugin checks the device ID at that address again before transfer; if it
+has changed or the device is unavailable, search for printers again.
 Keep the printer idle and do not start a print during the transfer. Names
 are shortened to DOS 8.3 and collisions are rejected; the resulting printer
 filename is shown after success. See [file management](file-management.md).
@@ -53,8 +55,9 @@ selection. Errors appear in the tab. Keep the printer idle and do not start a
 print or another file operation during deletion. Bulk deletion requires updated
 firmware.
 
-The existing save button remains independent: it scans and asks for a
-destination on each upload, even if a printer is selected in the tab.
+Searching again clears the selected printer and hides the wireless save option
+until a printer is selected again. An upload already confirmed remains bound to
+that printer even if the selection later changes.
 
 ## Build and install
 

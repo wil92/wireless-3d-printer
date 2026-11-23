@@ -15,6 +15,7 @@ class LocalPrinterStage(CuraStage):
     filesChanged = pyqtSignal()
     printerStatusChanged = pyqtSignal()
     devicesChanged = pyqtSignal()
+    printerChanged = pyqtSignal()
     selectionChanged = pyqtSignal()
     _completed = pyqtSignal(str, object, object)
     _status_completed = pyqtSignal(int, object, object)
@@ -93,6 +94,10 @@ class LocalPrinterStage(CuraStage):
     @pyqtProperty(str, notify=changed)
     def printerName(self):
         return self._device.name if self._device else ""
+
+    @property
+    def selected_device(self):
+        return self._device
 
     @pyqtProperty(bool, notify=changed)
     def busy(self):
@@ -188,6 +193,7 @@ class LocalPrinterStage(CuraStage):
         self._devices = []
         self.devicesChanged.emit()
         self._device = None
+        self.printerChanged.emit()
         self._files = []
         self._printer_status = None
         self.filesChanged.emit()
@@ -200,6 +206,7 @@ class LocalPrinterStage(CuraStage):
         if self._busy or index < 0 or index >= len(self._devices):
             return
         self._device = self._devices[index]
+        self.printerChanged.emit()
         self._files = []
         self._printer_status = None
         self.filesChanged.emit()

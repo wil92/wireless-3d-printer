@@ -5,4 +5,5 @@ def getMetaData():
 def register(app):
     from .output_device import Wireless3DPrinterPlugin
     from .local_printer import LocalPrinterStage
-    return {"output_device": Wireless3DPrinterPlugin(), "stage": LocalPrinterStage()}
+    stage = LocalPrinterStage()
+    return {"output_device": Wireless3DPrinterPlugin(stage), "stage": stage}

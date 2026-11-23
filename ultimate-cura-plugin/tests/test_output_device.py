@@ -10,6 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 try:
+    from PyQt6.QtCore import QObject, pyqtSignal
     from PyQt6.QtWidgets import QApplication, QMessageBox
     from Wireless3DPrinter import output_device
 except ImportError:
@@ -47,7 +48,13 @@ class OutputDeviceTests(unittest.TestCase):
         self.messages = patch.object(output_device, "Message", FakeMessage)
         self.messages.start()
         self.addCleanup(self.messages.stop)
-        self.output = output_device.Wireless3DPrinterOutputDevice()
+        class Stage(QObject):
+            printerChanged = pyqtSignal()
+            selected_device = None
+
+        self.stage = Stage()
+        self.device = output_device.client.Device("id", "Printer", "127.0.0.1", 80)
+        self.output = output_device.Wireless3DPrinterOutputDevice(self.stage)
 
     def wait_done(self):
         deadline = time.monotonic() + 5
@@ -56,43 +63,58 @@ class OutputDeviceTests(unittest.TestCase):
             time.sleep(0.005)
         self.assertFalse(self.output._busy)
 
-    def test_scan_failure_is_visible(self):
-        with patch.object(output_device.client, "discover", side_effect=RuntimeError("network down")):
+    def test_no_selection_is_rejected(self):
+        with patch.object(output_device.client, "upload") as upload, \
+                patch.object(output_device.QMessageBox, "question") as question:
             self.output.requestWrite([], "part")
-            self.wait_done()
-        self.assertIn("network down", FakeMessage.messages[-1].text)
+        upload.assert_not_called()
+        question.assert_not_called()
+        self.assertFalse(self.output._busy)
+        self.assertIn("Select a printer", FakeMessage.messages[-1].text)
 
     def test_plugin_registers_and_removes_save_option(self):
         manager = unittest.mock.Mock()
         application = unittest.mock.Mock()
         application.getOutputDeviceManager.return_value = manager
         with patch("UM.OutputDevice.OutputDevicePlugin.Application.getInstance", return_value=application):
-            plugin = output_device.Wireless3DPrinterPlugin()
+            plugin = output_device.Wireless3DPrinterPlugin(self.stage)
+            plugin.stop()
             plugin.start()
+            plugin.start()
+            manager.addOutputDevice.assert_not_called()
+            self.stage.selected_device = self.device
+            self.stage.printerChanged.emit()
             registered = manager.addOutputDevice.call_args.args[0]
             self.assertEqual(registered.getShortDescription(), "Save to wireless-3d-printer")
             self.assertEqual(registered.getDescription(), "Save to wireless-3d-printer")
+            self.stage.printerChanged.emit()
+            self.assertEqual(manager.addOutputDevice.call_count, 1)
+            self.stage.selected_device = None
+            self.stage.printerChanged.emit()
+            manager.removeOutputDevice.assert_called_once_with("wireless_3d_printer")
+            self.stage.selected_device = self.device
+            self.stage.printerChanged.emit()
             plugin.stop()
-        manager.removeOutputDevice.assert_called_once_with("wireless_3d_printer")
-
-    def test_no_devices_is_visible(self):
-        with patch.object(output_device.client, "discover", return_value=[]):
-            self.output.requestWrite([], "part")
-            self.wait_done()
-        self.assertIn("No wireless-3d-printer devices found", FakeMessage.messages[-1].text)
+            self.assertEqual(manager.removeOutputDevice.call_count, 2)
+            self.stage.printerChanged.emit()
+            self.assertEqual(manager.addOutputDevice.call_count, 2)
+            plugin.start()
+            self.assertEqual(manager.addOutputDevice.call_count, 3)
+            plugin.stop()
 
     def test_confirmation_cancel_does_not_write(self):
-        device = output_device.client.Device("id", "Printer", "127.0.0.1", 80)
-        with patch.object(output_device.client, "discover", return_value=[device]), \
-                patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.No), \
+        self.stage.selected_device = self.device
+        with patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.No), \
                 patch.object(output_device.client, "upload") as upload:
             self.output.requestWrite([], "part")
             self.wait_done()
             upload.assert_not_called()
 
-    def test_choice_writer_upload_and_cleanup(self):
+    def test_selected_printer_writer_upload_and_cleanup(self):
         devices = [output_device.client.Device("a", "One", "127.0.0.1", 80),
                    output_device.client.Device("b", "Two", "127.0.0.2", 80)]
+        self.stage.selected_device = devices[1]
+        stage = self.stage
         captured = {}
 
         class FakeSignal:
@@ -107,6 +129,7 @@ class OutputDeviceTests(unittest.TestCase):
 
             def start(self):
                 self.stream.write("G28\n")
+                stage.selected_device = devices[0]
                 self.finished.callback(self)
 
             def getStream(self):
@@ -128,14 +151,16 @@ class OutputDeviceTests(unittest.TestCase):
                 return object()
 
         registry = Registry()
-        with patch.object(output_device.client, "discover", return_value=devices), \
-                patch.object(output_device.QInputDialog, "getItem", return_value=("Two (b, 127.0.0.2:80)", True)), \
+        with patch.object(output_device.client, "discover") as discover, \
+                patch.object(output_device.client, "device_at", return_value=devices[1]) as verify, \
                 patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
                 patch.object(output_device.PluginRegistry, "getInstance", return_value=registry), \
                 patch.object(output_device, "WriteFileJob", FakeJob), \
                 patch.object(output_device.client, "upload", side_effect=fake_upload):
             self.output.requestWrite(["scene"], "model")
             self.wait_done()
+        discover.assert_not_called()
+        verify.assert_called_once_with("127.0.0.2", 80)
         self.assertEqual(registry.name, "GCodeWriter")
         self.assertEqual(captured["device"], devices[1])
         self.assertEqual(captured["data"], "G28\n")
@@ -154,7 +179,7 @@ class OutputDeviceTests(unittest.TestCase):
         self.assertIn("partial file", FakeMessage.messages[-1].text)
 
     def test_writer_failure_cleans_up_and_does_not_upload(self):
-        device = output_device.client.Device("id", "Printer", "127.0.0.1", 80)
+        self.stage.selected_device = self.device
         paths = []
 
         class FakeSignal:
@@ -184,8 +209,7 @@ class OutputDeviceTests(unittest.TestCase):
 
         registry = unittest.mock.Mock()
         registry.getPluginObject.return_value = object()
-        with patch.object(output_device.client, "discover", return_value=[device]), \
-                patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
+        with patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
                 patch.object(output_device.PluginRegistry, "getInstance", return_value=registry), \
                 patch.object(output_device, "WriteFileJob", FailingJob), \
                 patch.object(output_device.client, "upload") as upload:
@@ -194,6 +218,37 @@ class OutputDeviceTests(unittest.TestCase):
             upload.assert_not_called()
         self.assertIn("no sliced G-code", FakeMessage.messages[-1].text)
         self.assertFalse(Path(paths[0]).exists())
+
+    def test_selection_change_during_confirmation_aborts(self):
+        self.stage.selected_device = self.device
+
+        def change_selection(*args):
+            self.stage.selected_device = None
+            return QMessageBox.StandardButton.Yes
+
+        with patch.object(output_device.QMessageBox, "question", side_effect=change_selection), \
+                patch.object(output_device, "WriteFileJob") as job:
+            self.output.requestWrite([], "part")
+        job.assert_not_called()
+        self.assertFalse(self.output._busy)
+        self.assertIn("selected printer changed", FakeMessage.messages[-1].text)
+
+    def test_verification_failure_never_uploads(self):
+        other = output_device.client.Device("other", "Other", self.device.address, self.device.port)
+        for result in (other, RuntimeError("offline")):
+            with self.subTest(result=result), tempfile.NamedTemporaryFile(delete=False) as file:
+                path = file.name
+                self.output._device = self.device
+                self.output._path = path
+                self.output._busy = True
+                kwargs = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
+                with patch.object(output_device.client, "device_at", **kwargs), \
+                        patch.object(output_device.client, "upload") as upload:
+                    self.output._upload()
+                    self.wait_done()
+                    upload.assert_not_called()
+                self.assertIn("No G-code was uploaded", FakeMessage.messages[-1].text)
+                self.assertFalse(Path(path).exists())
 
 
 if __name__ == "__main__":

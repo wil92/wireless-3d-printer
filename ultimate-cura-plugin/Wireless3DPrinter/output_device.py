@@ -4,7 +4,7 @@ import tempfile
 import threading
 
 from PyQt6.QtCore import QObject, pyqtSignal
-from PyQt6.QtWidgets import QInputDialog, QMessageBox
+from PyQt6.QtWidgets import QMessageBox
 from UM.FileHandler.WriteFileJob import WriteFileJob
 from UM.Mesh.MeshWriter import MeshWriter
 from UM.Message import Message
@@ -20,30 +20,55 @@ if os.path.isdir(vendor) and vendor not in sys.path:
 
 
 class Bridge(QObject):
-    discovered = pyqtSignal(object, object)
     uploaded = pyqtSignal(object)
+    verification_failed = pyqtSignal(str)
     progress = pyqtSignal(int)
 
 
 class Wireless3DPrinterPlugin(OutputDevicePlugin):
+    def __init__(self, stage):
+        super().__init__()
+        self._stage = stage
+        self._device = Wireless3DPrinterOutputDevice(stage)
+        self._registered = False
+        self._started = False
+
     def start(self):
-        self._device = Wireless3DPrinterOutputDevice()
-        self.getOutputDeviceManager().addOutputDevice(self._device)
+        if self._started:
+            return
+        self._started = True
+        self._stage.printerChanged.connect(self._sync_device)
+        self._sync_device()
 
     def stop(self):
-        self.getOutputDeviceManager().removeOutputDevice("wireless_3d_printer")
+        if not self._started:
+            return
+        self._started = False
+        self._stage.printerChanged.disconnect(self._sync_device)
+        if self._registered:
+            self.getOutputDeviceManager().removeOutputDevice("wireless_3d_printer")
+            self._registered = False
+
+    def _sync_device(self):
+        if self._stage.selected_device and not self._registered:
+            self.getOutputDeviceManager().addOutputDevice(self._device)
+            self._registered = True
+        elif not self._stage.selected_device and self._registered:
+            self.getOutputDeviceManager().removeOutputDevice("wireless_3d_printer")
+            self._registered = False
 
 
 class Wireless3DPrinterOutputDevice(OutputDevice):
-    def __init__(self):
+    def __init__(self, stage):
         super().__init__("wireless_3d_printer")
+        self._stage = stage
         self.setName("wireless-3d-printer")
         self.setShortDescription("Save to wireless-3d-printer")
         self.setDescription("Save to wireless-3d-printer")
         self.setIconName("save")
         self._bridge = Bridge()
-        self._bridge.discovered.connect(self._on_discovered)
         self._bridge.uploaded.connect(self._on_uploaded)
+        self._bridge.verification_failed.connect(self._on_verification_failed)
         self._bridge.progress.connect(self._on_progress)
         self._busy = False
         self._path = None
@@ -55,55 +80,35 @@ class Wireless3DPrinterOutputDevice(OutputDevice):
         if self._busy:
             Message("A wireless-3d-printer upload is already in progress.", title="wireless-3d-printer").show()
             return
+        device = self._stage.selected_device
+        if not device:
+            Message("Select a printer in the Local Printer tab before uploading.",
+                    title="wireless-3d-printer").show()
+            return
         self._busy = True
         self._upload_result = None
         self._nodes = nodes
         self._filename = client.safe_filename(file_name)
-        self._message = Message("Scanning the local network for wireless-3d-printer devices...",
-                                title="wireless-3d-printer", progress=-1, lifetime=0,
-                                dismissable=False, use_inactivity_timer=False)
-        self._message.show()
-        threading.Thread(target=self._scan, daemon=True).start()
-
-    def _scan(self):
-        try:
-            devices = client.discover()
-        except Exception as error:
-            self._bridge.discovered.emit(None, str(error))
-        else:
-            self._bridge.discovered.emit(devices, None)
-
-    def _on_discovered(self, devices, error):
-        if error:
-            self._finish("Discovery failed: " + error, failed=True)
-            return
-        if not devices:
-            self._finish("No wireless-3d-printer devices found. Check the network and mDNS.", failed=True)
-            return
-        if len(devices) > 1:
-            labels = ["{} ({}, {}:{})".format(d.name, d.id, d.address, d.port) for d in devices]
-            selection, accepted = QInputDialog.getItem(None, "wireless-3d-printer", "Select a device:",
-                                                       labels, 0, False)
-            if not accepted:
-                self._finish()
-                return
-            device = devices[labels.index(selection)]
-        else:
-            device = devices[0]
         confirmation = QMessageBox.question(
             None, "Save to wireless-3d-printer",
-            "Upload {} to {} ({})?\n\n"
+            "Upload {} to {} ({}, {}:{})?\n\n"
             "The printer filename is shortened to 8.3 format; collisions are rejected. "
             "Keep the printer idle and do not start a print during the upload."
-            .format(self._filename, device.name, device.address),
+            .format(self._filename, device.name, device.id, device.address, device.port),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if confirmation != QMessageBox.StandardButton.Yes:
             self._finish()
             return
+        if self._stage.selected_device != device:
+            self._finish("The selected printer changed. Confirm the destination and try again.", failed=True)
+            return
         self._device = device
-        self._message.setText("Preparing G-code...")
+        self._message = Message("Preparing G-code...", title="wireless-3d-printer",
+                                progress=-1, lifetime=0, dismissable=False,
+                                use_inactivity_timer=False)
+        self._message.show()
         self.writeStarted.emit(self)
         try:
             writer = PluginRegistry.getInstance().getPluginObject("GCodeWriter")
@@ -133,12 +138,24 @@ class Wireless3DPrinterOutputDevice(OutputDevice):
 
     def _upload(self):
         try:
+            current = client.device_at(self._device.address, self._device.port)
+            if current.id != self._device.id:
+                raise RuntimeError("The selected printer's address now belongs to a different device. "
+                                   "Search for printers again.")
+        except Exception as error:
+            self._bridge.verification_failed.emit(str(error) or type(error).__name__)
+            return
+        try:
             self._upload_result = client.upload(
                 self._device, self._path, self._filename, self._bridge.progress.emit)
         except Exception as error:
             self._bridge.uploaded.emit(str(error))
         else:
             self._bridge.uploaded.emit(None)
+
+    def _on_verification_failed(self, error):
+        self._finish("Could not verify the selected printer: {}. No G-code was uploaded."
+                     .format(error), failed=True, started=True)
 
     def _on_progress(self, progress):
         self._message.setProgress(progress)
