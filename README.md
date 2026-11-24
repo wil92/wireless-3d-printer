@@ -1,5 +1,7 @@
 # wireless-3d-printer
 
+[![status](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml?query=branch%3Amaster)
+
 This project provides Wi-Fi configuration and network discovery for an
 ESP32-S3. It connects to a Marlin printer through native USB host mode to list
 and transfer G-code to the printer's SD card.
@@ -33,6 +35,7 @@ pio test -e tests -vvv
 ## Documentation
 
 - [Build configuration](docs/configuration.md)
+- [Continuous integration](docs/continuous-integration.md)
 - [ESP32-S3 wiring](docs/hardware.md)
 - [Marlin USB integration](docs/marlin-usb.md)
 - [Configuration reset](docs/configuration-reset.md)

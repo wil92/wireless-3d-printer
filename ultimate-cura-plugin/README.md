@@ -1,5 +1,7 @@
 # Wireless 3D Printer for Cura
 
+[![status](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml?query=branch%3Amaster)
+
 Discover wireless-3d-printer devices on your local network, browse and delete
 files on the printer, and send sliced G-code using Cura's save button.
 

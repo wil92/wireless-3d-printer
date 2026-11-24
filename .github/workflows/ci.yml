@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install build dependencies
+        run: python -m pip install platformio==6.1.19 minify-html==0.18.1
+      - name: Build firmware
+        run: pio run -e esp32dev
+      - name: Build Cura plugin
+        run: python ultimate-cura-plugin/build.py
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: |
+          python -m pip install platformio==6.1.19 minify-html==0.18.1
+          python -m pip install -r ultimate-cura-plugin/requirements.txt
+      - name: Run PlatformIO host tests
+        run: pio test -e tests
+      - name: Check generated frontend pages
+        run: python scripts/build_views.py --check
+      - name: Run Python host tests
+        run: python -m unittest discover -s test -p 'test_*.py'
+      - name: Run Cura plugin host tests
+        run: python -m unittest discover -s ultimate-cura-plugin/tests -v
+      - name: Run frontend tests
+        run: node test/host/frontend_test.js
+      - name: Run log server tests
+        run: node --test log-server/server.test.js
