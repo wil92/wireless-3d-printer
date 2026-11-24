@@ -6,6 +6,10 @@ archive. Its independent test job runs the PlatformIO native tests, checks
 generated frontend pages, and runs the Python, Cura plugin, frontend, and log
 server host tests.
 
+The build job pre-creates pioarduino's Python environment and installs the
+HTML minifier there, so the firmware's generated-page build script can import
+it on a fresh runner.
+
 The workflow does not upload firmware or require a personal access token.
 Cura UI integration tests are skipped when Cura/Uranium and PyQt6 are not
 available on the runner; device and live Cura testing remain manual.
