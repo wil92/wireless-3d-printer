@@ -13,9 +13,16 @@ then click the save button. This option is available only while a printer is
 selected. Confirm the selected device's name, ID, and address before uploading.
 The plugin checks the device ID at that address again before transfer; if it
 has changed or the device is unavailable, search for printers again.
-Keep the printer idle and do not start a print during the transfer. Names
-are shortened to DOS 8.3 and collisions are rejected; the resulting printer
-filename is shown after success. See [file management](file-management.md).
+Keep the printer idle and do not start a print during the transfer. The plugin
+uses Cura's model base name, not Cura's abbreviated printer-prefixed job name:
+`esp32-s3-supermini-box` becomes `WRP-ESP32_S3_SUPERMINI_BOX.GCO`. Runs of
+non-ASCII letters, punctuation and spaces become underscores; names longer than
+85 characters including `WRP-` are rejected, not shortened. The printer must
+support writing and listing long filenames. Update both the ESP32 firmware and
+the plugin to major version 2; the plugin refuses uploads when it cannot verify
+a compatible firmware version. Collisions are rejected and the printer must
+confirm the full name in its file listing after the transfer. See
+[file management](file-management.md).
 
 HTTP and mDNS are unencrypted and unauthenticated, so use a trusted network.
 
@@ -28,7 +35,8 @@ device name and the printer's file names and sizes. Use **Refresh files** to
 reload the list; the bordered table has a visible vertical scrollbar for long
 lists. The tab polls SD activity and nozzle/bed temperatures every 10 seconds.
 On connection, a warning appears if the plugin and firmware major versions
-differ or their compatibility cannot be verified. Operations remain available.
+differ or their compatibility cannot be verified. File management remains
+available, but uploads require a verified matching major version.
 See [versioning](versioning.md) for the version policy and recovery.
 Polling runs quietly in the background and keeps the last values visible until
 they change. If a poll fails, the tab reports the error and marks status
@@ -39,10 +47,10 @@ printing does not mean idle:** leveling, motion and jobs streamed by another
 host are not detectable. The operator must ensure the printer stays idle
 throughout file operations. See [status monitoring](marlin-usb.md#status-monitoring).
 
-Files matching Cura's current job name, either by long name or the shortened
-8.3 upload name, have a subtle row highlight and are labeled **current model
-name**. This is a filename match, not proof that the contents are the same;
-shortened names can collide.
+Files matching Cura's current model or job name, including the new long upload
+name and older 8.3 names, have a subtle row highlight and are labeled **current
+model name**. This is a filename match, not proof that the contents are the same;
+older shortened names can collide.
 Use **Print** and confirm to start a listed file. Make sure the printer is
 idle, safe and ready before confirming. The tab immediately refreshes status
 after the request; an acknowledged start does not prove the job started.

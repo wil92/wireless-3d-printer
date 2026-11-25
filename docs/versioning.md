@@ -107,7 +107,9 @@ After selecting a printer, the plugin retrieves the firmware version and
 compares its major to the installed plugin major. A mismatch displays a
 warning containing both versions; it does not block printer operations.
 An unavailable, malformed, or unsupported version response also produces a
-warning that compatibility could not be verified. Older firmware may respond
+warning that compatibility could not be verified. File management remains
+available, but uploads require a matching major version and a valid response,
+because older firmware cannot honor the long-name upload request. Older firmware may respond
 with a web page instead of the version endpoint. Update the older component,
 search again, and reconnect to recheck. HTTP is unauthenticated and
 unencrypted; use a trusted network.

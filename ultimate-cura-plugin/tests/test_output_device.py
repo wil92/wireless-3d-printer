@@ -53,6 +53,13 @@ class OutputDeviceTests(unittest.TestCase):
             selected_device = None
 
         self.stage = Stage()
+        self.information = unittest.mock.Mock()
+        self.information.baseName = ""
+        application = unittest.mock.Mock()
+        application.getPrintInformation.return_value = self.information
+        self.application = patch.object(output_device.Application, "getInstance", return_value=application)
+        self.application.start()
+        self.addCleanup(self.application.stop)
         self.device = output_device.client.Device("id", "Printer", "127.0.0.1", 80)
         self.output = output_device.Wireless3DPrinterOutputDevice(self.stage)
 
@@ -114,6 +121,7 @@ class OutputDeviceTests(unittest.TestCase):
         devices = [output_device.client.Device("a", "One", "127.0.0.1", 80),
                    output_device.client.Device("b", "Two", "127.0.0.2", 80)]
         self.stage.selected_device = devices[1]
+        self.information.baseName = "esp32-s3-supermini-box"
         stage = self.stage
         captured = {}
 
@@ -153,11 +161,12 @@ class OutputDeviceTests(unittest.TestCase):
         registry = Registry()
         with patch.object(output_device.client, "discover") as discover, \
                 patch.object(output_device.client, "device_at", return_value=devices[1]) as verify, \
+                patch.object(output_device.client, "version_warning", return_value=""), \
                 patch.object(output_device.QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes), \
                 patch.object(output_device.PluginRegistry, "getInstance", return_value=registry), \
                 patch.object(output_device, "WriteFileJob", FakeJob), \
                 patch.object(output_device.client, "upload", side_effect=fake_upload):
-            self.output.requestWrite(["scene"], "model")
+            self.output.requestWrite(["scene"], "UMS5-ESP")
             self.wait_done()
         discover.assert_not_called()
         verify.assert_called_once_with("127.0.0.2", 80)
@@ -165,7 +174,7 @@ class OutputDeviceTests(unittest.TestCase):
         self.assertEqual(captured["device"], devices[1])
         self.assertEqual(captured["data"], "G28\n")
         self.assertEqual(captured["nodes"], ["scene"])
-        self.assertEqual(captured["filename"], "model.gcode")
+        self.assertEqual(captured["filename"], "WRP-ESP32_S3_SUPERMINI_BOX.gcode")
         self.assertFalse(Path(captured["path"]).exists())
         self.assertIn("Upload complete", FakeMessage.messages[-1].text)
 
@@ -249,6 +258,28 @@ class OutputDeviceTests(unittest.TestCase):
                     upload.assert_not_called()
                 self.assertIn("No G-code was uploaded", FakeMessage.messages[-1].text)
                 self.assertFalse(Path(path).exists())
+
+    def test_incompatible_firmware_never_uploads(self):
+        with tempfile.NamedTemporaryFile(delete=False) as file:
+            path = file.name
+        self.output._device = self.device
+        self.output._path = path
+        self.output._busy = True
+        with patch.object(output_device.client, "device_at", return_value=self.device), \
+                patch.object(output_device.client, "version_warning", return_value="incompatible"), \
+                patch.object(output_device.client, "upload") as upload:
+            self.output._upload()
+            self.wait_done()
+        upload.assert_not_called()
+        self.assertIn("incompatible", FakeMessage.messages[-1].text)
+
+    def test_oversized_name_is_rejected_before_confirmation(self):
+        self.stage.selected_device = self.device
+        self.information.baseName = "a" * 82
+        with patch.object(output_device.QMessageBox, "question") as question:
+            self.output.requestWrite([], "short")
+        question.assert_not_called()
+        self.assertIn("too long", FakeMessage.messages[-1].text)
 
 
 if __name__ == "__main__":

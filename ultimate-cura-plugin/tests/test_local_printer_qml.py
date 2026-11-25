@@ -26,6 +26,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
         app = self.app
         application = Mock()
         application.getPrintInformation.return_value.jobName = ""
+        application.getPrintInformation.return_value.baseName = ""
         status = patch.object(client, "printer_status", return_value={
             "printer_name": "Printer", "printer_status": "not_sd_printing",
             "nozzle_temperature": 20, "bed_temperature": 21})

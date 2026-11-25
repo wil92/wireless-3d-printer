@@ -585,17 +585,33 @@ bool MarlinClient::numbered(const std::string &command) {
     return sendCommand(wire) && waitOk();
 }
 
-bool MarlinClient::beginUpload(const std::string &filename, std::string &target) {
+bool MarlinClient::beginUpload(const std::string &filename, std::string &target, bool longName) {
     error_.clear();
     if (!ensureReady()) return false;
-    if (!makeFilename(filename, target)) return fail("Invalid G-code filename.");
+    longUploadTarget_.clear();
+    if (longName) {
+        const size_t dot = filename.rfind('.');
+        if (dot == std::string::npos || upper(filename.substr(dot)) != ".GCODE" ||
+            dot <= 4 || dot + 4 + 5 > max_wire_line || filename.compare(0, 4, "WRP-") != 0)
+            return fail("Invalid long G-code filename.");
+        for (size_t i = 4; i < dot; ++i) {
+            const char ch = filename[i];
+            if (!((ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_'))
+                return fail("Invalid long G-code filename.");
+        }
+        target = filename.substr(0, dot) + ".GCO";
+    } else if (!makeFilename(filename, target)) return fail("Invalid G-code filename.");
     loggedDataReplies_ = 0;
     diagnostic("upload_preflight target=" + target + " session=" + std::to_string(transport_.session()));
     if (!synchronize() || !checkIdle()) return false;
     std::vector<MarlinFile> files;
     if (!listFiles(files)) return false;
     for (const MarlinFile &file : files) {
-        if (upper(file.path) == target) return fail("A printer file with this name already exists.");
+        if (upper(file.path) == target || (longName && upper(file.name) == target))
+            return fail("A printer file with this name already exists.");
+        if (longName && file.path.find('/') == std::string::npos &&
+            file.path.find('~') != std::string::npos && upper(file.name) == upper(file.path))
+            return fail("Cannot safely check long filenames on this printer.");
     }
     if (!checkIdle()) return false;
     lineNumber_ = 0;
@@ -608,6 +624,7 @@ bool MarlinClient::beginUpload(const std::string &filename, std::string &target)
     if (!waitOk(&opened, expected.c_str())) return false;
     uploading_ = true;
     uncertain_ = false;
+    if (longName) longUploadTarget_ = target;
     lineNumber_ = 1;
     diagnostic("upload_open target=" + target + " session=" + std::to_string(session_));
     return true;
@@ -654,6 +671,19 @@ bool MarlinClient::finishUpload() {
     diagnostic("upload_close line=" + std::to_string(lineNumber_));
     if (!sendCommand("M29") || !waitOk(&saved, "Done saving file")) return false;
     uncertain_ = false;
+    if (!longUploadTarget_.empty()) {
+        std::vector<MarlinFile> files;
+        if (!listFiles(files)) return false;
+        bool found = false;
+        for (const MarlinFile &file : files) {
+            if (file.path.find('/') == std::string::npos && upper(file.name) == longUploadTarget_) {
+                found = true;
+                break;
+            }
+        }
+        longUploadTarget_.clear();
+        if (!found) return fail("Printer did not confirm the full uploaded filename.");
+    }
     diagnostic("upload_closed line=" + std::to_string(lineNumber_));
     return true;
 }

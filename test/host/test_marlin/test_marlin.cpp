@@ -16,6 +16,8 @@ public:
     std::string temperatures = "ok T:205.25 /210.00 B:60.50 /60.00\n";
     std::string listing = "Begin file list\nEnd file list\nok\n";
     std::string opening;
+    std::string longUpload;
+    bool showLongUpload = true;
     std::string closing = "Done saving file\nok\n";
     std::string deletion = "File deleted: TEST.GCO\nok\n";
     std::string selection = "File opened: TEST.GCO Size: 123\nFile selected\nok\n";
@@ -39,8 +41,15 @@ public:
         else if (command == "M20 L\n") reply = listing;
         else if (command.find("M28 ") == 0) {
             reply = opening.empty() ? "Writing to file: " + command.substr(5) + "ok\n" : opening;
+            if (command.find("M28 /WRP-") == 0) longUpload = command.substr(5, command.size() - 6);
         }
-        else if (command == "M29\n") reply = closing;
+        else if (command == "M29\n") {
+            reply = closing;
+            if (!longUpload.empty() && showLongUpload) {
+                listing = "Begin file list\nWRP-ES~1.GCO 123 " + longUpload + "\nEnd file list\nok\n";
+            }
+            longUpload.clear();
+        }
         else if (command.find("M30 ") == 0) reply = deletion;
         else if (command.find("M23 ") == 0) reply = selection;
         else if (command == "M24\n") reply = start;
@@ -353,6 +362,40 @@ void testSuccessfulTransferUsesCheckedLines() {
     TEST_ASSERT_EQUAL_STRING("M28 /TEST_PRI.GCO\n", transport.writes[6].c_str());
     TEST_ASSERT_EQUAL_STRING("N1 G1 X10*80\n", transport.writes[7].c_str());
     TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes[8].c_str());
+}
+
+void testLongUploadNameAndCollisions() {
+    FakeTransport transport;
+    MarlinClient client(transport);
+    std::string target;
+    TEST_ASSERT_TRUE(client.beginUpload("WRP-ESP32_S3_SUPERMINI_BOX.gcode", target, true));
+    TEST_ASSERT_EQUAL_STRING("WRP-ESP32_S3_SUPERMINI_BOX.GCO", target.c_str());
+    TEST_ASSERT_EQUAL_STRING("M28 /WRP-ESP32_S3_SUPERMINI_BOX.GCO\n", transport.writes.back().c_str());
+    TEST_ASSERT_TRUE(client.finishUpload());
+
+    transport.listing = "Begin file list\nWRP-ES~1.GCO 123 wrp-esp32_s3_supermini_box.gco\n"
+                        "End file list\nok\n";
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-ESP32_S3_SUPERMINI_BOX.gcode", target, true));
+    TEST_ASSERT_TRUE(client.error().find("already exists") != std::string::npos);
+    transport.listing = "Begin file list\nWRP-ES~1.GCO 123\nEnd file list\nok\n";
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-OTHER.gcode", target, true));
+    TEST_ASSERT_TRUE(client.error().find("Cannot safely check") != std::string::npos);
+
+    const std::string valid = "WRP-" + std::string(81, 'A') + ".gcode";
+    transport.listing = "Begin file list\nEnd file list\nok\n";
+    TEST_ASSERT_TRUE(client.beginUpload(valid, target, true));
+    TEST_ASSERT_TRUE(client.finishUpload());
+    transport.showLongUpload = false;
+    transport.listing = "Begin file list\nEnd file list\nok\n";
+    TEST_ASSERT_TRUE(client.beginUpload("WRP-MISSING.gcode", target, true));
+    TEST_ASSERT_FALSE(client.finishUpload());
+    TEST_ASSERT_TRUE(client.error().find("did not confirm") != std::string::npos);
+    const size_t before = transport.writes.size();
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-" + std::string(82, 'A') + ".gcode", target, true));
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-abc.gcode", target, true));
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-A/FILE.gcode", target, true));
+    TEST_ASSERT_FALSE(client.beginUpload("WRP-.gcode", target, true));
+    TEST_ASSERT_EQUAL_UINT(before, transport.writes.size());
 }
 
 void testExampleAndSequentialCheckedLinesAcrossUploads() {
@@ -689,6 +732,7 @@ int main() {
     RUN_TEST(testPrintDiagnosticsStartAcknowledgementAndTimeout);
     RUN_TEST(testPrintDiagnosticsReportEarlyAndSelectionFailures);
     RUN_TEST(testSuccessfulTransferUsesCheckedLines);
+    RUN_TEST(testLongUploadNameAndCollisions);
     RUN_TEST(testExampleAndSequentialCheckedLinesAcrossUploads);
     RUN_TEST(testRejectsBusyAndUnconfirmedStatus);
     RUN_TEST(testRejectsCollisionsAndIncompleteFileLists);

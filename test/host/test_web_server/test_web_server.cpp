@@ -84,6 +84,7 @@ public:
     bool busy = false;
     bool timeoutFirmware = false;
     std::string listing = "OLD.GCO 42 Old print.gcode\n";
+    std::string longUpload;
 
     bool connected() override { return true; }
     bool write(const char *data, size_t length) override {
@@ -94,8 +95,14 @@ public:
         else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
         else if (command == "M105\n") reply = "ok T:205.25 /210 B:60.5 /60\n";
         else if (command == "M20 L\n") reply = "Begin file list\n" + listing + "End file list\nok\n";
-        else if (command.find("M28 ") == 0) reply = "Writing to file: NEW.GCO\nok\n";
-        else if (command == "M29\n") reply = "Done saving file\nok\n";
+        else if (command.find("M28 ") == 0) {
+            reply = "Writing to file: " + command.substr(5) + "ok\n";
+            if (command.find("M28 /WRP-") == 0) longUpload = command.substr(5, command.size() - 6);
+        }
+        else if (command == "M29\n") {
+            reply = "Done saving file\nok\n";
+            if (!longUpload.empty()) listing += "WRP-ES~1.GCO 42 " + longUpload + "\n";
+        }
         else if (command == "M30 /OLD.GCO\n") reply = "File deleted: OLD.GCO\nok\n";
         else if (command == "M30 /TWO.GCO\n") reply = "File deleted: TWO.GCO\nok\n";
         else if (command == "M23 /OLD.GCO\n") {
@@ -192,6 +199,14 @@ void testPrinterListAndRawUpload() {
     TEST_ASSERT_EQUAL_STRING("N1 M117 TRANSFER TEST*56\n", transport.writes[transport.writes.size() - 3].c_str());
     TEST_ASSERT_EQUAL_STRING("N2 G1 X10*83\n", transport.writes[transport.writes.size() - 2].c_str());
     TEST_ASSERT_EQUAL_STRING("M29\n", transport.writes.back().c_str());
+    SetupConnectionClient longUpload;
+    longUpload.setRequest("Content-Type: application/octet-stream\r\nContent-Length: " +
+                          std::to_string(body.size()) + "\r\n\r\n" + body);
+    manager.checkEndpoints(&longUpload,
+                           "POST /upload?name=WRP-ESP32_S3_SUPERMINI_BOX.gcode&long_name=1 HTTP/1.1\r");
+    TEST_ASSERT_TRUE(longUpload.response.find("Saved as WRP-ESP32_S3_SUPERMINI_BOX.GCO") != std::string::npos);
+    TEST_ASSERT_TRUE(std::find(transport.writes.begin(), transport.writes.end(),
+                               "M28 /WRP-ESP32_S3_SUPERMINI_BOX.GCO\n") != transport.writes.end());
 }
 
 void testPrinterDeleteEndpoint() {

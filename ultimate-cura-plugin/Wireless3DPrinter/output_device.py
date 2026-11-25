@@ -5,6 +5,7 @@ import threading
 
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtWidgets import QMessageBox
+from UM.Application import Application
 from UM.FileHandler.WriteFileJob import WriteFileJob
 from UM.Mesh.MeshWriter import MeshWriter
 from UM.Message import Message
@@ -85,14 +86,21 @@ class Wireless3DPrinterOutputDevice(OutputDevice):
             Message("Select a printer in the Local Printer tab before uploading.",
                     title="wireless-3d-printer").show()
             return
+        information = Application.getInstance().getPrintInformation()
+        model_name = information.baseName if information and information.baseName else file_name
+        try:
+            filename = client.model_filename(model_name)
+        except ValueError as error:
+            Message(str(error), title="wireless-3d-printer").show()
+            return
         self._busy = True
         self._upload_result = None
         self._nodes = nodes
-        self._filename = client.safe_filename(file_name)
+        self._filename = filename
         confirmation = QMessageBox.question(
             None, "Save to wireless-3d-printer",
             "Upload {} to {} ({}, {}:{})?\n\n"
-            "The printer filename is shortened to 8.3 format; collisions are rejected. "
+            "The printer must support long filenames for uploads; collisions are rejected. "
             "Keep the printer idle and do not start a print during the upload."
             .format(self._filename, device.name, device.id, device.address, device.port),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
@@ -142,6 +150,9 @@ class Wireless3DPrinterOutputDevice(OutputDevice):
             if current.id != self._device.id:
                 raise RuntimeError("The selected printer's address now belongs to a different device. "
                                    "Search for printers again.")
+            warning = client.version_warning(self._device)
+            if warning:
+                raise RuntimeError(warning)
         except Exception as error:
             self._bridge.verification_failed.emit(str(error) or type(error).__name__)
             return

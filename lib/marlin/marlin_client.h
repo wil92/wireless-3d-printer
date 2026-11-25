@@ -39,7 +39,7 @@ public:
     bool deleteFile(const std::string &path);
     bool startPrint(const std::string &path);
     bool getStatus(MarlinStatus &status);
-    bool beginUpload(const std::string &filename, std::string &target);
+    bool beginUpload(const std::string &filename, std::string &target, bool longName = false);
     bool uploadLine(const std::string &line);
     bool finishUpload();
     void abortUpload();
@@ -69,6 +69,7 @@ private:
     size_t pendingBytes_ = 0;
     unsigned int loggedDataReplies_ = 0;
     std::string error_;
+    std::string longUploadTarget_;
     uint32_t lineNumber_ = 0;
     uint32_t session_ = 0;
     bool uploading_ = false;

@@ -24,6 +24,7 @@ class LocalPrinterTests(unittest.TestCase):
     def setUp(self):
         application = Mock()
         application.getPrintInformation.return_value.jobName = ""
+        application.getPrintInformation.return_value.baseName = ""
         with patch.object(local_printer.Application, "getInstance", return_value=application):
             self.stage = local_printer.LocalPrinterStage()
             self.stage._on_engine_created()
@@ -111,6 +112,13 @@ class LocalPrinterTests(unittest.TestCase):
                 self.wait_done()
             self.assertFalse(self.stage.canDelete)
             self.assertIn("offline", self.stage.status)
+
+    def test_long_upload_matches_full_base_name(self):
+        self.stage._files = [{"name": "WRP-ESP32_S3_SUPERMINI_BOX.GCO",
+                              "path": "WRP-ES~1.GCO", "size": 12}]
+        self.stage._print_information.baseName = "esp32-s3-supermini-box"
+        self.stage._print_information.jobName = "UMS5-ESP"
+        self.assertTrue(self.stage.files[0]["currentModel"])
 
     def test_poll_is_quiet_and_only_notifies_on_changes(self):
         with patch.object(client, "discover", return_value=[self.one]), \

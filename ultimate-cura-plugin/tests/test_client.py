@@ -109,7 +109,7 @@ class ClientTests(unittest.TestCase):
         Handler.deletes = []
         Handler.bulk_deletes = []
         Handler.prints = []
-        Handler.version = {"firmware_version": "1.0"}
+        Handler.version = {"firmware_version": "2.0"}
         Handler.version_status = 200
         Handler.printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                                  "nozzle_temperature": 210.5, "bed_temperature": None}
@@ -121,15 +121,29 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client.safe_filename("example.gcode"), "example.gcode")
         self.assertEqual(len(client.safe_filename("a" * 200)), 106)
 
+    def test_model_filename_uses_full_uppercase_snake_case(self):
+        examples = {
+            "esp32-s3-supermini-box": "WRP-ESP32_S3_SUPERMINI_BOX.gcode",
+            "a  mixed-name.v2.GCODE": "WRP-A_MIXED_NAME_V2.gcode",
+            "../../hello-world": "WRP-HELLO_WORLD.gcode",
+            "...": "WRP-UNTITLED_PRINT.gcode",
+            "a" * 81: "WRP-" + "A" * 81 + ".gcode",
+        }
+        for name, expected in examples.items():
+            with self.subTest(name=name):
+                self.assertEqual(client.model_filename(name), expected)
+        with self.assertRaisesRegex(ValueError, "too long"):
+            client.model_filename("a" * 82)
+
     def test_version_compatibility_and_invalid_responses(self):
-        for version in ("1.0", "1.7", "1.100"):
+        for version in ("2.0", "2.7", "2.100"):
             Handler.version = {"firmware_version": version}
             self.assertEqual(client.version_warning(self.device), "")
-        for version in ("0.9", "2.0", "10.1"):
+        for version in ("0.9", "1.0", "10.1"):
             Handler.version = {"firmware_version": version}
             warning = client.version_warning(self.device)
             self.assertIn("WARNING", warning)
-            self.assertIn("1.0", warning)
+            self.assertIn("2.0", warning)
             self.assertIn(version, warning)
         for value in (None, {}, [], {"firmware_version": 1}, {"firmware_version": "1"},
                       {"firmware_version": "1.0.0"}, {"firmware_version": "01.0"},
@@ -165,6 +179,9 @@ class ClientTests(unittest.TestCase):
             Handler.printer_state[key] = original
         self.assertTrue(client.matches_model({"name": "other", "path": "MY_PRINT.GCO"}, "my print"))
         self.assertTrue(client.matches_model({"name": "my print.gcode", "path": "MY~1.GCO"}, "my print"))
+        self.assertTrue(client.matches_model(
+            {"name": "WRP-ESP32_S3_SUPERMINI_BOX.GCO", "path": "WRP-ES~1.GCO"},
+            "esp32-s3-supermini-box"))
         self.assertFalse(client.matches_model({"name": "other", "path": "OTHER.GCO"}, "my print"))
         self.assertFalse(client.matches_model({"name": "untitled_print.gcode", "path": "UNTITLED.GCO"}, ""))
 
@@ -175,10 +192,10 @@ class ClientTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile() as f:
             f.write(data)
             f.flush()
-            client.upload(self.device, f.name, "sample.gcode", progress.append)
+            client.upload(self.device, f.name, client.model_filename("esp32-s3-supermini-box"), progress.append)
         path, headers, body = Handler.uploads[0]
         self.assertEqual(headers["Content-Type"], "application/octet-stream")
-        self.assertEqual(path, "/upload?name=sample.gcode")
+        self.assertEqual(path, "/upload?name=WRP-ESP32_S3_SUPERMINI_BOX.gcode&long_name=1")
         self.assertEqual(len(body), int(headers["Content-Length"]))
         self.assertEqual(body, data)
         self.assertEqual(progress[-1], 100)

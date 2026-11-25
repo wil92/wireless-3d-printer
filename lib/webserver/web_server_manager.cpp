@@ -485,8 +485,10 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
     const std::map<String, String> parameters =
         parseQueryParameters(message, static_cast<int>(String("POST /upload?").length()));
     const auto name = parameters.find("name");
+    const auto longName = parameters.find("long_name");
     if (name == parameters.end() || name->second.length() > 128 ||
-        name->second.length() != std::strlen(name->second.c_str())) {
+        name->second.length() != std::strlen(name->second.c_str()) ||
+        (longName != parameters.end() && longName->second != "1")) {
         sendTextResponse(client, 400, "Invalid filename.");
         client->stop();
         return;
@@ -549,7 +551,7 @@ void WebServerManager::handleUpload(WiFiClient *client, const String &message) {
     const unsigned long uploadStart = millis();
     DebugLog.println(String("Printer upload request bytes=") + String(static_cast<unsigned long>(length)));
     std::string target;
-    if (!printer->beginUpload(name->second.c_str(), target)) {
+    if (!printer->beginUpload(name->second.c_str(), target, longName != parameters.end())) {
         DebugLog.println(String("Printer upload preflight failed: ") + printer->error().c_str());
         sendTextResponse(client, 409, String(printer->error().c_str()));
         client->stop();

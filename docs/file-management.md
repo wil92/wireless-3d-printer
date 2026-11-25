@@ -9,12 +9,21 @@ printer cannot enforce this restriction; an M28 that races with a print may
 abort the job. See [Marlin USB integration](marlin-usb.md) for limitations,
 recovery and supported G-code.
 
-Uploads map the name to an uppercase 8-character DOS base name plus `.GCO`:
+Browser and standard API uploads map the name to an uppercase 8-character DOS base name plus `.GCO`:
 letters, digits, `_` and `-` are retained, other characters become `_`, and
 the base is truncated to eight characters. For example, `my print.gcode`
 becomes `MY_PRINT.GCO`. The upload is rejected if the printer lists an
 existing root file with that name; files are not intentionally overwritten.
 The returned name is the one to select on the printer.
+
+The Cura plugin instead requests a long name such as
+`WRP-ESP32_S3_SUPERMINI_BOX.GCO`. This requires a printer that can write long
+filenames with M28 and report them through M20 L. The ESP32 rejects an existing
+matching long name, refuses a long upload when a root DOS alias has no long
+name available for collision checking, and verifies the name in the listing
+after M29. If verification fails, the file may nevertheless have been written;
+refresh the list before retrying. The operator must prevent other hosts from
+changing files during the operation.
 
 To compare local copies of files, see the
 [comparison script](compare-local-files.md).
@@ -39,6 +48,12 @@ To compare local copies of files, see the
   100,000,000 bytes). Chunked transfer encoding and multipart are not
   supported. A successful response is `Saved as NAME.GCO`. Existing clients
   using the former multipart contract must be updated.
+- Add `&long_name=1` to request a long Cura-style filename. The name must be
+  `WRP-`, followed by uppercase ASCII letters, digits or underscores, and
+  `.gcode`. The base, including `WRP-`, is limited to 85 characters to fit
+  the M28 command. The stored extension is `.GCO`. Long-name uploads require
+  printer support for creating and listing long names; an error after transfer
+  can mean that the file was saved but its full name could not be verified.
 - `DELETE /api/files?path=<url-encoded-DOS-path>` deletes a listed file using
   Marlin M30. The printer must report idle and confirm the exact deletion.
   Read-only media, unsupported commands and missing confirmations fail.

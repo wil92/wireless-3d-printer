@@ -57,8 +57,10 @@ class LocalPrinterStage(CuraStage):
 
     @pyqtProperty("QVariantList", notify=filesChanged)
     def files(self):
-        name = self._print_information.jobName if self._print_information else ""
-        return [dict(entry, currentModel=client.matches_model(entry, name)) for entry in self._files]
+        information = self._print_information
+        names = (information.baseName, information.jobName) if information else ()
+        return [dict(entry, currentModel=any(client.matches_model(entry, name) for name in names))
+                for entry in self._files]
 
     @pyqtProperty("QVariantList", notify=selectionChanged)
     def selectedPaths(self):

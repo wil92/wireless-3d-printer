@@ -18,6 +18,7 @@ UPLOAD_TIMEOUT = 600
 FILE_OPERATION_TIMEOUT = 120
 MAX_FILE_LIST_BYTES = 2 * 1024 * 1024
 STATUS_INTERVAL_MS = 10000
+MAX_MODEL_NAME_LENGTH = 85
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,18 @@ def safe_filename(name):
     if name.lower().endswith(".gcode"):
         name = name[:-6].strip(" .")
     return (name[:100] or "untitled_print") + ".gcode"
+
+
+def model_filename(name):
+    name = str(name or "untitled_print").replace("\\", "/").rsplit("/", 1)[-1]
+    if name.lower().endswith(".gcode"):
+        name = name[:-6]
+    name = re.sub(r"[^A-Za-z0-9]+", "_", name).strip("_").upper()
+    name = "WRP-" + (name or "UNTITLED_PRINT")
+    if len(name) > MAX_MODEL_NAME_LENGTH:
+        raise ValueError("Model name is too long for the printer (maximum {} characters including WRP-)."
+                         .format(MAX_MODEL_NAME_LENGTH))
+    return name + ".gcode"
 
 
 def device_at(address, port, timeout=CONNECT_TIMEOUT):
@@ -187,7 +200,11 @@ def matches_model(entry, model_name):
     if not isinstance(model_name, str) or not model_name.strip():
         return False
     expected = safe_filename(model_name)
-    return (entry["name"].casefold() == expected.casefold()
+    try:
+        new_name = model_filename(model_name)[:-6] + ".GCO"
+    except ValueError:
+        new_name = ""
+    return (entry["name"].casefold() in (expected.casefold(), new_name.casefold())
             or entry["path"].casefold() == printer_filename(model_name).casefold())
 
 
@@ -231,7 +248,7 @@ def upload(device, path, filename, progress=lambda percent: None):
         raise ValueError("G-code file is empty")
     connection = http.client.HTTPConnection(device.address, device.port, timeout=UPLOAD_TIMEOUT)
     try:
-        connection.putrequest("POST", "/upload?name=" + quote(filename, safe=""))
+        connection.putrequest("POST", "/upload?name=" + quote(filename, safe="") + "&long_name=1")
         connection.putheader("Content-Type", "application/octet-stream")
         connection.putheader("Content-Length", str(size))
         connection.putheader("Connection", "close")
