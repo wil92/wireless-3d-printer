@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Create and, after confirmation, push a component-version release tag."""
 
 import subprocess
