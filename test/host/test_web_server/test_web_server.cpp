@@ -83,6 +83,7 @@ public:
     unsigned long time = 0;
     bool busy = false;
     bool timeoutFirmware = false;
+    bool timeoutListing = false;
     std::string listing = "OLD.GCO 42 Old print.gcode\n";
     std::string longUpload;
 
@@ -94,7 +95,8 @@ public:
         else if (command.find("M118 ") == 0) reply = command.substr(5) + "ok\n";
         else if (command == "M27\n") reply = busy ? "SD printing byte 1/5\nok\n" : "Not SD printing\nok\n";
         else if (command == "M105\n") reply = "ok T:205.25 /210 B:60.5 /60\n";
-        else if (command == "M20 L\n") reply = "Begin file list\n" + listing + "End file list\nok\n";
+        else if (command == "M20 L\n")
+            reply = "Begin file list\n" + listing + (timeoutListing ? "" : "End file list\nok\n");
         else if (command.find("M28 ") == 0) {
             reply = "Writing to file: " + command.substr(5) + "ok\n";
             if (command.find("M28 /WRP-") == 0) longUpload = command.substr(5, command.size() - 6);
@@ -207,6 +209,54 @@ void testPrinterListAndRawUpload() {
     TEST_ASSERT_TRUE(longUpload.response.find("Saved as WRP-ESP32_S3_SUPERMINI_BOX.GCO") != std::string::npos);
     TEST_ASSERT_TRUE(std::find(transport.writes.begin(), transport.writes.end(),
                                "M28 /WRP-ESP32_S3_SUPERMINI_BOX.GCO\n") != transport.writes.end());
+}
+
+void testPrinterListAndStatusDuringSdPrint() {
+    FlashManager flash;
+    flash.isSetup = true;
+    flash.deviceName = "Printer";
+    PrinterTestTransport transport;
+    transport.busy = true;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient list;
+    list.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&list, "GET /api/files HTTP/1.1\r");
+    TEST_ASSERT_TRUE(list.response.find("200 OK") != std::string::npos);
+    TEST_ASSERT_TRUE(list.response.find("OLD.GCO") != std::string::npos);
+    SetupConnectionClient status;
+    status.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&status, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(status.response.find("\"printer_status\":\"sd_printing\"") != std::string::npos);
+}
+
+void testPrinterListTimeoutRecoversDuringSdPrint() {
+    FlashManager flash;
+    flash.isSetup = true;
+    flash.deviceName = "Printer";
+    PrinterTestTransport transport;
+    transport.busy = true;
+    transport.timeoutListing = true;
+    MarlinClient printer(transport);
+    WebServerManager manager;
+    manager.flashManager = &flash;
+    manager.printer = &printer;
+    SetupConnectionClient list;
+    list.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&list, "GET /api/files HTTP/1.1\r");
+    TEST_ASSERT_TRUE(list.response.find("503 Service Unavailable") != std::string::npos);
+    transport.timeoutListing = false;
+    SetupConnectionClient status;
+    status.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&status, "GET /api/status HTTP/1.1\r");
+    TEST_ASSERT_TRUE(status.response.find("\"printer_status\":\"sd_printing\"") != std::string::npos);
+    SetupConnectionClient retry;
+    retry.setRequest("Host: localhost\r\n\r\n");
+    manager.checkEndpoints(&retry, "GET /api/files HTTP/1.1\r");
+    TEST_ASSERT_TRUE(retry.response.find("200 OK") != std::string::npos);
+    TEST_ASSERT_TRUE(retry.response.find("OLD.GCO") != std::string::npos);
 }
 
 void testPrinterDeleteEndpoint() {
@@ -855,6 +905,8 @@ int runUnitTests() {
     RUN_TEST(testDeviceInfoIsJson);
     RUN_TEST(testVersionEndpoint);
     RUN_TEST(testPrinterListAndRawUpload);
+    RUN_TEST(testPrinterListAndStatusDuringSdPrint);
+    RUN_TEST(testPrinterListTimeoutRecoversDuringSdPrint);
     RUN_TEST(testPrinterDeleteEndpoint);
     RUN_TEST(testPrinterPrintEndpoint);
     RUN_TEST(testBulkDeleteEndpoint);

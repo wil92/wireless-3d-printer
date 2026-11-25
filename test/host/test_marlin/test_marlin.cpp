@@ -184,6 +184,32 @@ void testStatusTimeoutRecoveryForSdAndTemperature() {
     }
 }
 
+void testReadOnlyRequestsWhilePrintingAndListTimeoutRecovery() {
+    RecoveryTransport transport;
+    transport.status = "SD printing byte 10/100\nok\n";
+    transport.listing = "Begin file list\nTEST.GCO 123 Test.gcode\nEnd file list\nok\n";
+    MarlinClient client(transport);
+    MarlinStatus status;
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_TRUE(status.sdPrinting);
+    TEST_ASSERT_TRUE(client.listFiles(files));
+    TEST_ASSERT_EQUAL_UINT(1, files.size());
+    transport.listing = "Begin file list\nTEST.GCO 123 Test.gcode\n";
+    TEST_ASSERT_FALSE(client.listFiles(files));
+    TEST_ASSERT_TRUE(files.empty());
+    transport.listing = "Begin file list\nTEST.GCO 123 Test.gcode\nEnd file list\nok\n";
+    transport.beforeMarker = "End file list\nok\n";
+    TEST_ASSERT_TRUE(client.getStatus(status));
+    TEST_ASSERT_TRUE(status.sdPrinting);
+    TEST_ASSERT_TRUE(client.listFiles(files));
+    TEST_ASSERT_EQUAL_UINT(1, files.size());
+    for (const auto &command : transport.writes) {
+        TEST_ASSERT_TRUE(command.find("M23 ") != 0 && command.find("M28 ") != 0 &&
+                         command.find("M30 ") != 0 && command != "M24\n");
+    }
+}
+
 void testStatusRecoveryRejectsChangedSessionAndUnsafeOperations() {
     RecoveryTransport transport;
     transport.timeoutFirmware = true;
@@ -205,6 +231,9 @@ void testStatusRecoveryRejectsChangedSessionAndUnsafeOperations() {
     TEST_ASSERT_FALSE(uploadClient.finishUpload());
     const size_t uploadBefore = uploadTransport.writes.size();
     TEST_ASSERT_FALSE(uploadClient.getStatus(status));
+    TEST_ASSERT_EQUAL_UINT(uploadBefore, uploadTransport.writes.size());
+    std::vector<MarlinFile> files;
+    TEST_ASSERT_FALSE(uploadClient.listFiles(files));
     TEST_ASSERT_EQUAL_UINT(uploadBefore, uploadTransport.writes.size());
 
     RecoveryTransport printTransport;
@@ -722,6 +751,7 @@ int main() {
     RUN_TEST(testStatusRecoveryWaitsForMarkerAcknowledgement);
     RUN_TEST(testStatusRecoveryRetriesMarkerDroppedByAbort);
     RUN_TEST(testStatusTimeoutRecoveryForSdAndTemperature);
+    RUN_TEST(testReadOnlyRequestsWhilePrintingAndListTimeoutRecovery);
     RUN_TEST(testStatusRecoveryRejectsChangedSessionAndUnsafeOperations);
     RUN_TEST(testStartPrintRequiresIdleListedAndConfirmedFile);
     RUN_TEST(testStartPrintStopsIfStatusChanges);

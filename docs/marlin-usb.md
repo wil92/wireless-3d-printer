@@ -30,6 +30,11 @@ the preflight collision check. A complete list and acknowledgement are
 required. The firmware limits listings to 256 entries, filenames to 128
 bytes and response lines to 1024 bytes. It does not mount media automatically;
 the printer must have an SD card mounted and writable.
+In the referenced Marlin implementation, M20 lists the mounted card through
+the directory reader without opening or closing the active print file. M20,
+M27 and M105 can therefore be requested while an SD job is running or paused;
+printer firmware builds may differ. These commands do not make uploads,
+deletions, or starting another print safe during a job.
 
 Before [M28](https://marlinfw.org/docs/gcode/M028.html), the host resets the
 serial line number with `N0 M110 N0*125`. Each nonempty G-code line is sent
@@ -105,8 +110,8 @@ host. `not_sd_printing` is **not** a guarantee that the printer is idle.
 Uploads and deletes still require two confirmed M27 idle checks, and the
 operator must ensure the printer is idle throughout each operation. Status
 queries cannot prevent a print starting between a check and a file operation.
-Long-running printer commands may delay or prevent a status response. After a
-read-only status request times out, later requests attempt to resynchronize
+Long-running printer commands may delay or prevent a status or file-list response. After a
+read-only status or file-list request times out, later requests attempt to resynchronize
 using an [M118](https://marlinfw.org/docs/gcode/M118.html) message with a
 unique marker. The device ignores stale replies and waits for that marker and
 its acknowledgement before issuing further commands. If the printer remains

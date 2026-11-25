@@ -56,7 +56,9 @@ private:
     bool synchronize();
     bool ensureReady();
     bool recoverStatus();
+    void markReadTimeout();
     bool queryStatus(MarlinStatus &status);
+    bool queryFiles(std::vector<MarlinFile> &files);
     bool checkIdle(const char *printPhase = nullptr);
     bool readSdStatus(bool &printing, const char *printPhase = nullptr);
     bool fail(const char *message);

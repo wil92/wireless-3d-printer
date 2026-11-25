@@ -10,10 +10,14 @@ Follow the rules in [versioning documentation](../../../docs/versioning.md).
 1. Identify whether the change affects shipped firmware, the Cura plugin, or
    both. Treat their versions independently; never synchronize their values
    merely because one changed.
-2. For each affected component, increment its major and reset its minor for a
-   plugin/firmware compatibility break; otherwise increment its minor. Do this
-   once per change, not once per edited file. Do not bump an unaffected
-   component. Preserve the `major.minor` format.
+2. Check local and remote release tags for each affected component version,
+   including tags where the other component's version differs. If the remote
+   cannot be checked, do not assume the version is unreleased. Keep an
+   untagged version unchanged. If the current version is tagged, increment its
+   major and reset its minor for a plugin/firmware compatibility break;
+   otherwise increment its minor. Do not bump an unaffected component.
+   Preserve the `major.minor` format and assess any compatibility break
+   introduced before the next release.
 3. Update firmware in `include/version.h` and plugin metadata in
    `ultimate-cura-plugin/Wireless3DPrinter/plugin.json` as applicable.
 4. Update version-related documentation or tests if necessary, and run

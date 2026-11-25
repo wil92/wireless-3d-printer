@@ -331,13 +331,17 @@ bool MarlinClient::getStatus(MarlinStatus &status) {
     error_.clear();
     if (!ensureReady()) return false;
     if (queryStatus(status)) return true;
+    markReadTimeout();
+    return false;
+}
+
+void MarlinClient::markReadTimeout() {
     if (uncertain_ && transport_.connected() && transport_.session() == session_ &&
         (error_ == "Printer response timed out." || error_ == "Printer status timed out." ||
-         error_ == "Printer temperature request timed out.")) {
+         error_ == "Printer temperature request timed out." || error_ == "Printer file list timed out.")) {
         statusRecoverable_ = true;
         diagnostic("status_recovery_pending command=" + pendingCommand_ + " session=" + std::to_string(session_));
     }
-    return false;
 }
 
 bool MarlinClient::queryStatus(MarlinStatus &status) {
@@ -376,6 +380,13 @@ bool MarlinClient::listFiles(std::vector<MarlinFile> &files) {
     files.clear();
     error_.clear();
     if (!ensureReady()) return false;
+    if (queryFiles(files)) return true;
+    files.clear();
+    markReadTimeout();
+    return false;
+}
+
+bool MarlinClient::queryFiles(std::vector<MarlinFile> &files) {
     if (!synchronize() || !sendCommand("M20 L")) return false;
     bool started = false, ended = false;
     const unsigned long start = transport_.now();

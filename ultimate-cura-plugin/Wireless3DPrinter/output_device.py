@@ -180,6 +180,7 @@ class Wireless3DPrinterOutputDevice(OutputDevice):
                          failed=True, started=True)
         else:
             self._finish(self._upload_result or "Upload complete.", started=True)
+            self._stage.uploadCompleted(self._device)
 
     def _finish(self, text=None, failed=False, started=False):
         if self._message:

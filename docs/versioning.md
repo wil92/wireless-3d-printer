@@ -8,8 +8,13 @@ The firmware and Cura plugin have **independent** versions. Both begin at
 package metadata. Do not copy one component's version to the other just
 because it changed.
 
-For each change to either component, update that component's version once
-as part of the change:
+Before changing an affected component's version, check the release tags
+locally and on the remote. A component version is released if it appears in
+any `v<firmware-version>-cura<plugin-version>` tag, even when the other
+component's version differs. Fetch or inspect remote tags as well as local
+tags; if the remote cannot be checked, do not assume the version is unreleased.
+If the current component version has no release tag, retain it for subsequent
+changes. If it has been tagged, increment it once for the accumulated changes:
 
 - Increment the **major** and reset the minor to zero for a change that
   breaks compatibility between the plugin and firmware, for example `1.3` to
@@ -17,7 +22,10 @@ as part of the change:
 - Increment the **minor** for a fix or behavior change that preserves
   compatibility, for example `1.3` to `1.4`.
 
-If both components change, assess and update each independently. For a
+If both components change, assess and update each independently. Once a
+component has been bumped to an untagged version, retain that version for
+further unreleased changes. If those changes introduce a compatibility break,
+choose the appropriate major version before release. For a
 coordinated breaking change, update the major of each component when its
 change adopts the new incompatible protocol. Minor versions need not match;
 equal majors indicate intended compatibility, not a guarantee of it. Review
@@ -25,9 +33,8 @@ protocol changes and tests as well as version numbers. Documentation-only
 or test-only changes do not require a component version bump unless they
 change a shipped component's behavior.
 
-The initial versioning implementation establishes the `1.0` baseline for
-both components. For later changes, rebuild and reinstall the plugin or
-rebuild and upload the firmware as appropriate; changes to source version
+Both components start at the `1.0` baseline. Rebuild and reinstall the plugin
+or rebuild and upload the firmware as appropriate; changes to source version
 values do not update already installed software.
 
 ## Creating a release

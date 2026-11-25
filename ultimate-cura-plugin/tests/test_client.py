@@ -109,7 +109,7 @@ class ClientTests(unittest.TestCase):
         Handler.deletes = []
         Handler.bulk_deletes = []
         Handler.prints = []
-        Handler.version = {"firmware_version": "2.0"}
+        Handler.version = {"firmware_version": "1.0"}
         Handler.version_status = 200
         Handler.printer_state = {"printer_name": "Workshop", "printer_status": "not_sd_printing",
                                  "nozzle_temperature": 210.5, "bed_temperature": None}
@@ -136,14 +136,14 @@ class ClientTests(unittest.TestCase):
             client.model_filename("a" * 82)
 
     def test_version_compatibility_and_invalid_responses(self):
-        for version in ("2.0", "2.7", "2.100"):
+        for version in ("1.0", "1.7", "1.100"):
             Handler.version = {"firmware_version": version}
             self.assertEqual(client.version_warning(self.device), "")
-        for version in ("0.9", "1.0", "10.1"):
+        for version in ("0.9", "2.0", "10.1"):
             Handler.version = {"firmware_version": version}
             warning = client.version_warning(self.device)
             self.assertIn("WARNING", warning)
-            self.assertIn("2.0", warning)
+            self.assertIn("1.0", warning)
             self.assertIn(version, warning)
         for value in (None, {}, [], {"firmware_version": 1}, {"firmware_version": "1"},
                       {"firmware_version": "1.0.0"}, {"firmware_version": "01.0"},

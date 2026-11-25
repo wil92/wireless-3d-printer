@@ -53,6 +53,7 @@ class OutputDeviceTests(unittest.TestCase):
             selected_device = None
 
         self.stage = Stage()
+        self.stage.uploadCompleted = unittest.mock.Mock()
         self.information = unittest.mock.Mock()
         self.information.baseName = ""
         application = unittest.mock.Mock()
@@ -177,6 +178,7 @@ class OutputDeviceTests(unittest.TestCase):
         self.assertEqual(captured["filename"], "WRP-ESP32_S3_SUPERMINI_BOX.gcode")
         self.assertFalse(Path(captured["path"]).exists())
         self.assertIn("Upload complete", FakeMessage.messages[-1].text)
+        self.stage.uploadCompleted.assert_called_once_with(devices[1])
 
     def test_upload_error_is_visible_and_temp_file_removed(self):
         with tempfile.NamedTemporaryFile(delete=False) as file:
@@ -186,6 +188,7 @@ class OutputDeviceTests(unittest.TestCase):
         self.output._on_uploaded("HTTP 500")
         self.assertFalse(Path(path).exists())
         self.assertIn("partial file", FakeMessage.messages[-1].text)
+        self.stage.uploadCompleted.assert_not_called()
 
     def test_writer_failure_cleans_up_and_does_not_upload(self):
         self.stage.selected_device = self.device

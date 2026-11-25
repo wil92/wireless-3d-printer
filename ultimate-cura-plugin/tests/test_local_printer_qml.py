@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
-    from PyQt6.QtCore import QObject, QPointF, QUrl, Qt, pyqtProperty, pyqtSlot
+    from PyQt6.QtCore import QObject, QPointF, QUrl, Qt, pyqtProperty, pyqtSignal, pyqtSlot
     from PyQt6.QtGui import QColor, QFont
     from PyQt6.QtQml import QQmlComponent, QQmlEngine, qmlRegisterSingletonInstance
     from PyQt6.QtQuick import QQuickWindow
@@ -58,9 +58,49 @@ class LocalPrinterQmlTests(unittest.TestCase):
                 return font
 
         controller, theme = Controller(), Theme()
+        class Backend(QObject):
+            changed = pyqtSignal()
+            current_state = 3
+
+            @pyqtProperty(int, notify=changed)
+            def state(self):
+                return self.current_state
+
+            @pyqtProperty(int, constant=True)
+            def Done(self):
+                return 3
+
+            @pyqtProperty(int, constant=True)
+            def Disabled(self):
+                return 4
+
+        class OutputManager(QObject):
+            def __init__(self):
+                super().__init__()
+                self.requests = []
+
+            @pyqtSlot(str, str, "QVariantMap")
+            def requestWriteToDevice(self, device_id, name, options):
+                self.requests.append((device_id, name, options))
+
+        class CuraApp(QObject):
+            @pyqtProperty(bool, constant=True)
+            def platformActivity(self):
+                return True
+
+        class PrintInfo(QObject):
+            @pyqtProperty(str, constant=True)
+            def jobName(self):
+                return "Sliced model"
+
+        backend, output, cura_app, print_info = Backend(), OutputManager(), CuraApp(), PrintInfo()
         qmlRegisterSingletonInstance("UM", 1, 5, "Controller", controller)
         qmlRegisterSingletonInstance("UM", 1, 5, "Theme", theme)
+        qmlRegisterSingletonInstance("UM", 1, 5, "Backend", backend)
+        qmlRegisterSingletonInstance("UM", 1, 5, "OutputDeviceManager", output)
         engine = QQmlEngine()
+        engine.rootContext().setContextProperty("CuraApplication", cura_app)
+        engine.rootContext().setContextProperty("PrintInformation", print_info)
         warnings = []
         engine.warnings.connect(lambda errors: warnings.extend(error.toString() for error in errors))
         component = QQmlComponent(engine, QUrl.fromLocalFile(
@@ -74,6 +114,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
         root.setParentItem(window.contentItem())
         window.show()
         app.processEvents()
+        self.assertFalse(root.findChild(QObject, "uploadSlicedModel").property("visible"))
 
         def assert_centered():
             content = root.findChild(QObject, "printerContent")
@@ -116,6 +157,19 @@ class LocalPrinterQmlTests(unittest.TestCase):
             root.findChild(QObject, "searchPrinters").clicked.emit()
             wait_done()
             self.assertEqual(stage.files, [dict(files[0], currentModel=False)])
+            upload_button = root.findChild(QObject, "uploadSlicedModel")
+            self.assertTrue(upload_button.property("visible"))
+            self.assertTrue(upload_button.property("enabled"))
+            backend.current_state = 1
+            backend.changed.emit()
+            app.processEvents()
+            self.assertFalse(upload_button.property("enabled"))
+            backend.current_state = 3
+            backend.changed.emit()
+            app.processEvents()
+            self.assertTrue(upload_button.property("enabled"))
+            upload_button.clicked.emit()
+            self.assertEqual(output.requests, [("wireless_3d_printer", "Sliced model", {})])
             file_list = root.findChild(QObject, "printerFiles")
             assert_centered()
             def find_visual(item, name):

@@ -28,6 +28,7 @@ class LocalPrinterStage(CuraStage):
         self._files = []
         self._selected = set()
         self._busy = False
+        self._refresh_after_upload = False
         self._polling = False
         self._generation = 0
         self._printer_status = None
@@ -201,6 +202,7 @@ class LocalPrinterStage(CuraStage):
         self._devices = []
         self.devicesChanged.emit()
         self._device = None
+        self._refresh_after_upload = False
         self._version_warning = ""
         self.printerChanged.emit()
         self._files = []
@@ -215,6 +217,7 @@ class LocalPrinterStage(CuraStage):
         if self._busy or index < 0 or index >= len(self._devices):
             return
         self._device = self._devices[index]
+        self._refresh_after_upload = False
         self._version_warning = ""
         self.printerChanged.emit()
         self._files = []
@@ -227,8 +230,16 @@ class LocalPrinterStage(CuraStage):
     @pyqtSlot()
     def refresh(self):
         if not self._busy and self._device:
+            self._refresh_after_upload = False
             self._clear_selection()
             self._start("list", "Loading printer files...", client.list_files, self._device)
+
+    def uploadCompleted(self, device):
+        if self._device != device:
+            return
+        self._refresh_after_upload = True
+        if not self._busy:
+            self.refresh()
 
     @pyqtSlot(str)
     def deleteFile(self, path):
@@ -272,6 +283,10 @@ class LocalPrinterStage(CuraStage):
                 self._clear_selection()
             self._status = "{} failed: {}".format(
                 {"search": "Search", "list": "Loading files", "delete": "Delete", "print": "Print"}[operation], error)
+            if self._refresh_after_upload:
+                Message(self._status, title="wireless-3d-printer").show()
+                self.refresh()
+                return
             if operation == "print":
                 self.changed.emit()
                 self._poll_status()
@@ -288,11 +303,17 @@ class LocalPrinterStage(CuraStage):
             self._files = result
             self.filesChanged.emit()
             self._status = "{} file(s) on the printer.".format(len(result))
+            if self._refresh_after_upload:
+                self.refresh()
+                return
             self.changed.emit()
             self._poll_status()
             return
         elif operation == "print":
             self._status = "Print command acknowledged. Check the printer."
+            if self._refresh_after_upload:
+                self.refresh()
+                return
             self.changed.emit()
             self._poll_status()
             return

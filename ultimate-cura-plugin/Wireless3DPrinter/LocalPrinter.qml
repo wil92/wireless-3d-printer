@@ -42,6 +42,17 @@ Rectangle {
                 onClicked: root.stage.search()
             }
             Button {
+                objectName: "uploadSlicedModel"
+                text: "Upload sliced model"
+                font: UM.Theme.getFont("medium")
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.stage.printerName !== ""
+                enabled: !root.stage.busy && CuraApplication.platformActivity &&
+                         (UM.Backend.state === UM.Backend.Done || UM.Backend.state === UM.Backend.Disabled)
+                onClicked: UM.OutputDeviceManager.requestWriteToDevice(
+                    "wireless_3d_printer", PrintInformation.jobName, {})
+            }
+            Button {
                 objectName: "refreshFiles"
                 text: "Refresh files"
                 font: UM.Theme.getFont("medium")
@@ -116,7 +127,7 @@ Rectangle {
         }
         Label {
             visible: root.stage.printerName !== ""
-            text: "SD status only: keep the printer idle and do not start a job during file operations."
+            text: "SD status only: keep the printer idle for uploads, deletion, and starting a print."
             color: UM.Theme.getColor("text")
             font: UM.Theme.getFont("medium")
             horizontalAlignment: Text.AlignHCenter

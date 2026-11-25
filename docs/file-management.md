@@ -43,6 +43,9 @@ To compare local copies of files, see the
   back to its DOS path otherwise. `path` is the DOS path used for operations;
   sizes are in bytes. At most 256 entries are accepted; an incomplete or
   larger listing fails instead of producing a partial result.
+  Listing and status requests are read-only and can be requested while an SD
+  print is active or paused, although long-running printer commands can delay
+  or time out the response.
 - `POST /upload?name=<url-encoded-filename>` accepts a nonempty raw body with
   `Content-Type: application/octet-stream` and `Content-Length` (up to
   100,000,000 bytes). Chunked transfer encoding and multipart are not

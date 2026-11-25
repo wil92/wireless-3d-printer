@@ -305,6 +305,73 @@ class LocalPrinterTests(unittest.TestCase):
             self.stage.deleteFile("LONG.GCO")
             self.assertEqual(start.call_count, 1)
 
+    def test_refresh_and_poll_work_while_printing(self):
+        printing = {"printer_name": "Workshop", "printer_status": "sd_printing",
+                    "nozzle_temperature": 200, "bed_temperature": 60}
+        with patch.object(client, "discover", return_value=[self.one]), \
+                patch.object(client, "printer_status", return_value=printing) as status, \
+                patch.object(client, "list_files", return_value=self.files) as listing:
+            self.stage.search()
+            self.wait_done()
+            self.stage.refresh()
+            self.wait_done()
+            self.assertEqual(listing.call_count, 2)
+            self.assertGreaterEqual(status.call_count, 2)
+            self.assertEqual(self.stage.files, [dict(self.files[0], currentModel=False)])
+            self.assertFalse(self.stage.canDelete)
+
+    def test_upload_refresh_waits_for_busy_operation_and_respects_selection(self):
+        started, release = threading.Event(), threading.Event()
+        updated = self.files + [{"name": "New", "path": "NEW.GCO", "size": 20}]
+
+        def delayed_list(device):
+            started.set()
+            if not release.wait(5):
+                raise RuntimeError("test timed out")
+            return self.files
+
+        try:
+            with patch.object(client, "discover", return_value=[self.one, self.two]), \
+                    patch.object(client, "list_files", return_value=self.files):
+                self.stage.search()
+                self.wait_done()
+                self.stage.connectPrinter(0)
+                self.wait_done()
+            responses = iter([delayed_list, lambda device: updated])
+            with patch.object(client, "list_files", side_effect=lambda device: next(responses)(device)) as listing:
+                self.stage.refresh()
+                self.assertTrue(started.wait(1))
+                self.stage.uploadCompleted(self.two)
+                self.assertFalse(self.stage._refresh_after_upload)
+                self.stage.uploadCompleted(self.one)
+                release.set()
+                self.wait_done()
+                self.assertEqual(listing.call_count, 2)
+                self.assertEqual(len(self.stage.files), 2)
+            with patch.object(client, "list_files", return_value=updated) as listing:
+                self.stage.uploadCompleted(self.one)
+                self.wait_done()
+                listing.assert_called_once_with(self.one)
+                self.stage._devices = [self.one, self.two]
+                self.stage.connectPrinter(1)
+                self.wait_done()
+                listing.reset_mock()
+                self.stage.uploadCompleted(self.one)
+                listing.assert_not_called()
+        finally:
+            release.set()
+
+    def test_upload_refresh_reports_error_from_inflight_operation(self):
+        with patch.object(local_printer, "Message") as message, \
+                patch.object(client, "list_files", return_value=self.files):
+            self.stage._device = self.one
+            self.stage._busy = True
+            self.stage.uploadCompleted(self.one)
+            self.stage._on_completed("list", None, "offline")
+            self.wait_done()
+            self.assertIn("offline", message.call_args.args[0])
+            self.assertEqual(len(self.stage.files), 1)
+
     def test_print_failure_invalidates_status_and_reports_error(self):
         with patch.object(client, "discover", return_value=[self.one]), \
                 patch.object(client, "list_files", return_value=self.files), \
