@@ -37,6 +37,11 @@ The release tag identifies both independently versioned components as
 Each component-version pair can be released only once. The tag must match
 both version files in the tagged commit.
 
+To prepare a human-readable GitHub release description, use the
+[`release-changelog` skill](../.github/skills/release-changelog/SKILL.md).
+It compares release history and produces Markdown for copying into the
+description; it does not publish or modify a release.
+
 1. Update affected component versions according to the policy above, commit
    and push all changes to `master`, and confirm the CI run passes.
 2. Switch to `master` and run the release script:
