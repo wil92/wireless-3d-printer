@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Prepare and validate the files published by the release workflow."""
 
 import argparse
