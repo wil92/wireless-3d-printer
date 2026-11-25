@@ -9,6 +9,7 @@ from UM.Message import Message
 from cura.Stages.CuraStage import CuraStage
 
 from . import client
+from .file_size import format_file_size
 
 
 class LocalPrinterStage(CuraStage):
@@ -60,7 +61,8 @@ class LocalPrinterStage(CuraStage):
     def files(self):
         information = self._print_information
         names = (information.baseName, information.jobName) if information else ()
-        return [dict(entry, currentModel=any(client.matches_model(entry, name) for name in names))
+        return [dict(entry, displaySize=format_file_size(entry["size"]),
+                     currentModel=any(client.matches_model(entry, name) for name in names))
                 for entry in self._files]
 
     @pyqtProperty("QVariantList", notify=selectionChanged)

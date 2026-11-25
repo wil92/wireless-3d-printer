@@ -69,7 +69,7 @@ class LocalPrinterTests(unittest.TestCase):
             self.wait_done()
         self.assertIn("WARNING", self.stage.versionWarning)
         self.assertIn("HTTP 404", self.stage.versionWarning)
-        self.assertEqual(self.stage.files, [dict(self.files[0], currentModel=False)])
+        self.assertEqual(self.stage.files, [dict(self.files[0], displaySize="12 B", currentModel=False)])
         message.assert_called_once()
 
     def wait_done(self):
@@ -87,7 +87,7 @@ class LocalPrinterTests(unittest.TestCase):
             self.wait_done()
         listing.assert_called_once_with(self.one)
         self.assertEqual(self.stage.printerName, "Workshop")
-        self.assertEqual(self.stage.files, [dict(self.files[0], currentModel=False)])
+        self.assertEqual(self.stage.files, [dict(self.files[0], displaySize="12 B", currentModel=False)])
 
     def test_status_blocks_delete_and_marks_matching_model(self):
         with patch.object(client, "discover", return_value=[self.one]), \
@@ -317,7 +317,7 @@ class LocalPrinterTests(unittest.TestCase):
             self.wait_done()
             self.assertEqual(listing.call_count, 2)
             self.assertGreaterEqual(status.call_count, 2)
-            self.assertEqual(self.stage.files, [dict(self.files[0], currentModel=False)])
+            self.assertEqual(self.stage.files, [dict(self.files[0], displaySize="12 B", currentModel=False)])
             self.assertFalse(self.stage.canDelete)
 
     def test_upload_refresh_waits_for_busy_operation_and_respects_selection(self):

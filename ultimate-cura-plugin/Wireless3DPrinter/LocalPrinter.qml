@@ -170,7 +170,7 @@ Rectangle {
                     Layout.rightMargin: fileScrollBar.width
                     spacing: 0
                     Repeater {
-                        model: ["", "Name", "Size (bytes)", "Action"]
+                        model: ["", "Name", "Size", "Action"]
                         Rectangle {
                             objectName: "fileHeaderCell"
                             Layout.fillWidth: index === 1
@@ -183,6 +183,7 @@ Rectangle {
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             Label {
+                                objectName: "fileHeaderLabel"
                                 anchors.fill: parent
                                 anchors.leftMargin: 8
                                 anchors.rightMargin: 8
@@ -288,11 +289,12 @@ Rectangle {
                             border.color: UM.Theme.getColor("thick_lining")
                             border.width: 1
                             Label {
+                                objectName: "fileSizeLabel"
                                 anchors.fill: parent
                                 anchors.leftMargin: 8
                                 anchors.rightMargin: 8
                                 verticalAlignment: Text.AlignVCenter
-                                text: modelData.size
+                                text: modelData.displaySize
                                 color: UM.Theme.getColor("text")
                                 font: UM.Theme.getFont("medium")
                                 elide: Text.ElideRight

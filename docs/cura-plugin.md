@@ -33,7 +33,9 @@ HTTP and mDNS are unencrypted and unauthenticated, so use a trusted network.
 Choose **LOCAL PRINTER** to manage files without starting an upload. Select
 **Search for printers**; a single discovered device is selected automatically.
 If several are found, choose one and click **Connect**. The tab shows the
-device name and the printer's file names and sizes. Use **Refresh files** to
+device name and the printer's file names and sizes. Sizes use B, KB, MB, and
+larger units in multiples of 1024, rounded to at most one decimal place.
+Use **Refresh files** to
 reload the list; the bordered table has a visible vertical scrollbar for long
 lists. The tab polls SD activity and nozzle/bed temperatures every 10 seconds.
 Refreshing files and polling status are available during an SD print, subject

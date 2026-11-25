@@ -150,13 +150,13 @@ class LocalPrinterQmlTests(unittest.TestCase):
             self.assertFalse(stage.busy)
 
         device = client.Device("id", "Printer", "127.0.0.1", 80)
-        files = [{"name": "Long name", "path": "SHORT.GCO", "size": 20}]
+        files = [{"name": "Long name", "path": "SHORT.GCO", "size": 1536}]
         with patch.object(client, "discover", return_value=[device]), \
                 patch.object(client, "list_files", side_effect=[files, []]), \
                 patch.object(client, "delete_file") as delete:
             root.findChild(QObject, "searchPrinters").clicked.emit()
             wait_done()
-            self.assertEqual(stage.files, [dict(files[0], currentModel=False)])
+            self.assertEqual(stage.files, [dict(files[0], displaySize="1.5 KB", currentModel=False)])
             upload_button = root.findChild(QObject, "uploadSlicedModel")
             self.assertTrue(upload_button.property("visible"))
             self.assertTrue(upload_button.property("enabled"))
@@ -182,6 +182,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
                 return None
 
             button = find_visual(file_list, "deleteFile")
+            self.assertEqual(find_visual(file_list, "fileSizeLabel").property("text"), "1.5 KB")
             print_button = find_visual(file_list, "printFile")
             self.assertIsNotNone(print_button)
             self.assertIsNotNone(button, "list count={}, size={}x{}".format(
@@ -193,6 +194,7 @@ class LocalPrinterQmlTests(unittest.TestCase):
             header = root.findChild(QObject, "fileTableHeader")
             headers = [item for item in header.childItems() if item.objectName() == "fileHeaderCell"]
             self.assertEqual(len(headers), 4)
+            self.assertEqual(find_visual(headers[2], "fileHeaderLabel").property("text"), "Size")
             for header_cell, row_name in zip(headers, ("fileSelectCell", "fileNameCell", "fileSizeCell", "fileActionCell")):
                 row_cell = find_visual(file_list, row_name)
                 self.assertIsNotNone(row_cell)
