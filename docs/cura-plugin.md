@@ -71,6 +71,9 @@ installation. Some platforms may build or download native dependency modules;
 a zip built for one OS, architecture or Python version is not necessarily
 portable to another.
 
+The GitHub release ZIP is built for Linux x86_64 and Python 3.11. For another
+platform or Cura Python version, build the ZIP locally as described below.
+
 From the repository root:
 
 ```sh

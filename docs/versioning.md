@@ -30,13 +30,67 @@ both components. For later changes, rebuild and reinstall the plugin or
 rebuild and upload the firmware as appropriate; changes to source version
 values do not update already installed software.
 
+## Creating a release
+
+The release tag identifies both independently versioned components as
+`v<firmware-version>-cura<plugin-version>`, for example `v1.1-cura1.0`.
+Each component-version pair can be released only once. The tag must match
+both version files in the tagged commit.
+
+1. Update affected component versions according to the policy above, commit
+   and push all changes to `master`, and confirm the CI run passes.
+2. Switch to `master` and run the release script:
+
+   ```sh
+   python3 scripts/create_release_tag.py
+   ```
+
+   Configure `origin` to push to the GitHub repository. The script requires a
+   clean working tree, a single push URL for `origin`,
+   and a local `master` commit identical to the remote `master`. It reads both
+   versions, rejects existing local or remote tags, creates an annotated tag,
+   and displays the tag, versions, and commit before asking for confirmation.
+   Enter or `y` pushes the tag to `origin`; `n` deletes the new local tag
+   without pushing it. End-of-input or an interrupt also cancels it. If the
+   push fails, the local tag is retained because the remote may have accepted
+   it before the connection failed. Check whether the tag exists on the
+   remote and points to the intended commit. If it is absent, delete the local
+   tag with `git tag -d <tag>` before rerunning the script. If the remote
+   cannot be checked, retain the local tag until its state is known.
+3. Check the tag's Actions run and the resulting GitHub release. Only a tag
+   push can publish a release; its commit must be reachable from `master`.
+   Both build and test jobs must succeed first. A failed release job does not
+   automatically change a published release. Investigate the failure before
+   rerunning the job; if a draft was left behind, inspect and remove it before
+   retrying. Do not move or reuse published tags.
+
+Publishing marks the new release as GitHub's latest stable release. A new
+release with no change to either component version would reuse the same tag
+and is rejected; do not bump a component solely for documentation or tests.
+
+The release contains factory images
+`wireless-3d-printer_<firmware-version>.bin` and
+`wireless-3d-printer_debug-mode.<firmware-version>.bin`, and
+`Wireless3DPrinter_<plugin-version>.zip`. The factory images include the
+bootloader, partition table, and application and are written at flash offset
+`0x0` on the supported 4 MB ESP32-S3 board. Verify the board and use a
+compatible ESP32-S3 flashing tool and UART connection; flashing can overwrite
+existing firmware and settings. The debug image's receiver is configured over
+UART as described in [network logging](network-logging.md).
+
+The published Cura ZIP is built on Linux x86_64 using Python 3.11 and can
+contain native modules. Use it only with a compatible Cura Python runtime on
+that platform. Build locally for other systems or Cura Python versions as
+described in [Cura plugin installation](cura-plugin.md#build-and-install).
+Automated CI does not replace live Cura or printer/device validation.
+
 ## Device endpoint and compatibility warning
 
 On a configured device, `GET /api/version` returns HTTP 200,
 `Content-Type: application/json`, `Cache-Control: no-store`, and a JSON body:
 
 ```json
-{"firmware_version":"1.0"}
+{"firmware_version":"1.1"}
 ```
 
 The endpoint returns 404 during setup. It reports the installed firmware

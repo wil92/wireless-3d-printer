@@ -5,6 +5,9 @@
 
 #include "../include/hardware_pins.h"
 #include "../lib/debug_log/debug_log.h"
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+#include "../lib/debug_log/runtime_config.h"
+#endif
 #include "../lib/flash/flash_manager.h"
 #include "../lib/network/access_point_config.h"
 #include "../lib/network/network_manager.h"
@@ -19,8 +22,14 @@ ResetButton resetButton;
 PrinterUsb printerUsb;
 MarlinClient printer(printerUsb);
 bool webServerReady = false;
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+RuntimeDebugConfig debugConfig;
+#endif
 
 void resetConfigWhenButtonPress() {
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    debugConfig.poll();
+#endif
     resetButton.check(
         digitalRead(HardwarePins::resetConfig) == LOW,
         []() {
@@ -39,8 +48,10 @@ void resetConfigWhenButtonPress() {
 
 void setup() {
     Serial.begin(9600);
-#if defined(NETWORK_DEBUG_ADDRESS)
-    DebugLog.begin();
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    DebugLog.begin(debugConfig.begin());
+#elif defined(NETWORK_DEBUG_ADDRESS)
+    DebugLog.begin(NETWORK_DEBUG_ADDRESS);
 #endif
     DebugLog.println(String("ESP boot reset_reason=") + String(static_cast<int>(esp_reset_reason())));
     printer.setDiagnosticLogger([](const std::string &message) {

@@ -1,6 +1,6 @@
 #include "debug_log.h"
 
-#if defined(ARDUINO_ARCH_ESP32) && defined(NETWORK_DEBUG_ADDRESS)
+#if defined(ARDUINO_ARCH_ESP32) && (defined(NETWORK_DEBUG_ADDRESS) || defined(NETWORK_DEBUG_RUNTIME_CONFIG))
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <freertos/FreeRTOS.h>
@@ -11,6 +11,7 @@ namespace {
 constexpr size_t messageSize = 256;
 struct LogMessage { char text[messageSize]; };
 QueueHandle_t messages = nullptr;
+String receiverAddress;
 
 void sendLogs(void *) {
     LogMessage message;
@@ -23,7 +24,7 @@ void sendLogs(void *) {
         HTTPClient http;
         http.setConnectTimeout(500);
         http.setTimeout(500);
-        if (!http.begin(NETWORK_DEBUG_ADDRESS)) {
+        if (!http.begin(receiverAddress)) {
             Serial.println("Network debug URL is invalid");
             continue;
         }
@@ -39,7 +40,12 @@ void sendLogs(void *) {
 
 NetworkDebugLog DebugLog;
 
-bool NetworkDebugLog::begin() {
+bool NetworkDebugLog::begin(const String &address) {
+    if (address.length() == 0) {
+        Serial.println("Network debug logging disabled: no receiver configured");
+        return true;
+    }
+    receiverAddress = address;
     messages = xQueueCreate(32, sizeof(LogMessage));
     if (!messages) {
         Serial.println("Could not allocate network debug queue");

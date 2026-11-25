@@ -15,27 +15,49 @@ only after writing it. Limit access using a firewall: the server and firmware
 use unauthenticated, unencrypted HTTP, so anyone with access can submit logs
 and read traffic. The log directory is ignored by Git.
 
-Set `DEBUG_ADDRESS` when building to enable network logging. The address can be
-an IPv4 address or hostname, optionally with an `http://` prefix and port.
-When the port is omitted it defaults to 8080, matching the receiver:
+## Released debug firmware
 
-```sh
-DEBUG_ADDRESS=192.168.1.10 pio run -e esp32dev-debug
+The debug factory image enables network logging without embedding a receiver
+address. It initially logs to Serial only. Connect to the diagnostic UART at
+9600 baud, using a terminal that sends a newline at the end of each command.
+Enter a hostname or IPv4 address and optional port, then restart the device:
+
+```text
+debug-address 192.168.1.10:8080
 ```
 
-The `esp32dev-debug` environment inherits the normal ESP32 configuration and
-requires `DEBUG_ADDRESS`. The build sets `NETWORK_DEBUG_ADDRESS` to the full
-HTTP URL. Use the receiver's reachable LAN address, not `127.0.0.1`, and
-specify the actual port if it differs from 8080:
+The default port is 8080. The receiver must be reachable on the device's LAN;
+do not use `127.0.0.1`. The command saves the address in the ESP32's nonvolatile
+preferences and reports success or an error over Serial. To stop network
+logging, send `debug-address off` and restart. Changes take effect only after
+restart. Commands are accepted while the device is waiting for Wi-Fi as well
+as during normal operation. The address persists across configuration resets, but flashing a
+factory image may erase it along with other saved settings. Use the debug
+firmware's `off` command to remove it. The regular release image does not send
+network logs, regardless of the stored address.
+
+## Local builds
+
+Build the configurable variant with `pio run -e esp32dev-debug`. For a
+custom regular build, `DEBUG_ADDRESS` enables network logging with a fixed
+address. The address can be an IPv4 address or hostname, optionally with an
+`http://` prefix and port. When the port is omitted it defaults to 8080:
 
 ```sh
-DEBUG_ADDRESS=192.168.1.10:9000 pio run -e esp32dev-debug
+DEBUG_ADDRESS=192.168.1.10 pio run -e esp32dev
 ```
 
-The regular environment also enables network logging when `DEBUG_ADDRESS` is
-set, so `DEBUG_ADDRESS=192.168.1.10 pio run -e esp32dev` works as well.
+The build sets `NETWORK_DEBUG_ADDRESS` to the full HTTP URL. Use the
+receiver's reachable LAN address and specify the actual port if it differs
+from 8080:
+
+```sh
+DEBUG_ADDRESS=192.168.1.10:9000 pio run -e esp32dev
+```
+
 Without that variable, `pio run -e esp32dev` builds without network logging.
-Rebuild after changing or removing the address.
+Rebuild after changing or removing the address. `esp32dev-debug` ignores
+`DEBUG_ADDRESS` and uses its persistent UART configuration instead.
 
 Without the flag, diagnostics go
 only to Serial at 9600 baud, as before. With it, diagnostics still go to

@@ -1,6 +1,7 @@
 # wireless-3d-printer
 
 [![status](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/wil92/wireless-3d-printer/actions/workflows/ci.yml?query=branch%3Amaster)
+[![Latest stable release](https://img.shields.io/github/v/release/wil92/wireless-3d-printer?sort=date)](https://github.com/wil92/wireless-3d-printer/releases/latest)
 
 This project provides Wi-Fi configuration and network discovery for an
 ESP32-S3. It connects to a Marlin printer through native USB host mode to list
@@ -31,6 +32,19 @@ and transfer G-code to the printer's SD card.
 // run tests
 pio test -e tests -vvv
 ```
+
+## Creating a release
+
+1. Commit and push the changes to `master`, and confirm CI passes.
+2. On `master`, run the release script and confirm the displayed tag:
+
+   ```sh
+   python3 scripts/create_release_tag.py
+   ```
+
+3. Check the tagged GitHub Actions run and the published release. See
+   [versioning and releases](docs/versioning.md#creating-a-release) for the
+   independent component versions, artifacts, and recovery instructions.
 
 ## Documentation
 

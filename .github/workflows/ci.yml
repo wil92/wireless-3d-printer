@@ -21,9 +21,21 @@ jobs:
           python -m venv "$HOME/.platformio/penv"
           "$HOME/.platformio/penv/bin/python" -m pip install minify-html==0.18.1
       - name: Build firmware
-        run: pio run -e esp32dev
+        run: |
+          unset DEBUG_ADDRESS
+          pio run -e esp32dev -e esp32dev-debug
       - name: Build Cura plugin
         run: python ultimate-cura-plugin/build.py
+      - name: Prepare release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python scripts/release_artifacts.py package
+      - name: Store release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error
 
   test:
     name: Test
@@ -52,3 +64,41 @@ jobs:
         run: node test/host/frontend_test.js
       - name: Run log server tests
         run: node --test log-server/server.test.js
+
+  release:
+    name: Publish release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate tag and master ancestry
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python scripts/release_artifacts.py check-tag --tag "$RELEASE_TAG"
+          git fetch --no-tags origin +refs/heads/master:refs/remotes/origin/master
+          git merge-base --is-ancestor HEAD refs/remotes/origin/master
+          git fetch --force --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$(git rev-parse HEAD)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Verify release assets
+        run: python scripts/release_artifacts.py verify
+      - name: Publish tagged release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --generate-notes \
+            --title "$RELEASE_TAG" --latest \
+            --notes "The Cura ZIP is built for Linux x86_64 with Python 3.11. See the installation documentation for other platforms."
