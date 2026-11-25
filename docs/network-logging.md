@@ -18,23 +18,43 @@ and read traffic. The log directory is ignored by Git.
 ## Released debug firmware
 
 The debug factory image enables network logging without embedding a receiver
-address. It initially logs to Serial only. Connect to the diagnostic UART at
-9600 baud, using a terminal that sends a newline at the end of each command.
-Enter a hostname or IPv4 address and optional port, then restart the device:
+address. It initially logs to Serial only. On the setup page at
+`http://192.168.1.1/`, enter a receiver hostname or IPv4 address with an
+optional port under **Network debug logging**, enter the Wi-Fi and device
+settings, then select **Configure device**. The device saves the settings and
+restarts.
+
+On an already configured debug device, open its web page on the LAN and select
+**Device and debug configuration** (or visit `/config`). Enter the receiver
+and save it with **Configure device**. Wi-Fi scanning is only available in setup mode, but an SSID
+can be entered manually. To disable network logging, clear the receiver field
+and save. This control is unavailable in the
+regular release image. The receiver persists across Wi-Fi configuration resets,
+but flashing a factory image may erase it along with other saved settings.
+
+The default port is 8080. The receiver must be reachable on the device's LAN;
+do not use `127.0.0.1`. The web interface and receiver are unauthenticated and
+unencrypted; use a trusted network. The button saves all fields together and
+restarts the device. Invalid addresses, invalid Wi-Fi or device settings, or
+storage failures are reported without restarting.
+
+Alternatively, connect to the diagnostic UART at 9600 baud using a terminal
+that sends a newline at the end of each command. Enter a receiver and restart:
 
 ```text
 debug-address 192.168.1.10:8080
 ```
 
-The default port is 8080. The receiver must be reachable on the device's LAN;
-do not use `127.0.0.1`. The command saves the address in the ESP32's nonvolatile
-preferences and reports success or an error over Serial. To stop network
-logging, send `debug-address off` and restart. Changes take effect only after
-restart. Commands are accepted while the device is waiting for Wi-Fi as well
-as during normal operation. The address persists across configuration resets, but flashing a
-factory image may erase it along with other saved settings. Use the debug
-firmware's `off` command to remove it. The regular release image does not send
-network logs, regardless of the stored address.
+The UART command reports success or an error over Serial. Send
+`debug-address off` and restart to disable logging. Commands are accepted
+while the device is waiting for Wi-Fi as well as during normal operation.
+
+The existing configuration endpoint accepts the optional `debug_address`
+query parameter in debug firmware, for example
+`POST /?ssid=network&name=Printer&debug_address=HOST%3APORT`. An empty value
+clears the receiver; omitting it preserves the saved value. A successful save
+returns 204 and restarts; invalid settings return 400, and storage failures
+return 500. Regular firmware rejects the `debug_address` parameter.
 
 ## Local builds
 
@@ -57,7 +77,7 @@ DEBUG_ADDRESS=192.168.1.10:9000 pio run -e esp32dev
 
 Without that variable, `pio run -e esp32dev` builds without network logging.
 Rebuild after changing or removing the address. `esp32dev-debug` ignores
-`DEBUG_ADDRESS` and uses its persistent UART configuration instead.
+`DEBUG_ADDRESS` and uses its persistent runtime configuration instead.
 
 Without the flag, diagnostics go
 only to Serial at 9600 baud, as before. With it, diagnostics still go to

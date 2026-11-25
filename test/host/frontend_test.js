@@ -17,6 +17,7 @@ function element(value = "") {
         value,
         textContent: "",
         disabled: false,
+        dataset: {},
         children: [],
         classList: { toggle(name, enabled) { this[name] = enabled; } },
         replaceChildren(...children) { this.children = children; },
@@ -31,8 +32,11 @@ function element(value = "") {
     };
 }
 
-async function exercise(path) {
+async function exercise(path, debug = false) {
     const html = fs.readFileSync(path, "utf8");
+    assert.match(html, /<section[^>]*\bhidden\b[^>]*>/);
+    assert.match(html, /id=["]?debug_address["]?/);
+    assert.doesNotMatch(html, /\$\$DEBUG_CONFIG\$\$/);
     const script = html.match(/<script>([\s\S]*?)<\/script>/);
     assert.ok(script, `Missing script in ${path}`);
     const elements = {
@@ -44,7 +48,11 @@ async function exercise(path) {
         password: element("p&ss"),
         name: element("wireless-3d-printer"),
         status: element(),
+        debug_config: element(),
+        debug_address: element("logs.local:9000"),
     };
+    elements.debug_config.hidden = true;
+    elements.debug_config.dataset.debugEnabled = debug ? "true" : "false";
     const requests = [];
     let startResult = response(202, "Scanning");
     let scanResults = [
@@ -68,6 +76,7 @@ async function exercise(path) {
         encodeURIComponent,
     };
     vm.runInNewContext(script[1], context);
+    assert.equal(elements.debug_config.hidden, !debug);
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.filter(request => request.url === "/scan").length, 1);
     assert.equal(requests.filter(request => request.url === "/refresh-ssid").length, 2);
@@ -126,9 +135,44 @@ async function exercise(path) {
     assert.equal(query.get("name"), 'Printer "A" & é');
     assert.equal(query.get("ssid"), "my network");
     assert.equal(query.get("password"), "p&ss");
+    assert.equal(query.get("debug_address"), debug ? "logs.local:9000" : null);
     assert.equal(save.options.method, "POST");
     assert.match(elements.status.textContent, /Device configured/);
     assert.equal(elements.refresh.disabled, true);
+    if (debug) {
+        saveResult = response(400, "Invalid debug receiver");
+        await elements.summit.onclick();
+        assert.match(elements.status.textContent, /Invalid debug receiver/);
+        assert.equal(elements.summit.disabled, false);
+        saveResult = response(204);
+        elements.debug_address.value = "";
+        await elements.summit.onclick();
+        const request = requests[requests.length - 1];
+        assert.equal(new URLSearchParams(request.url.slice(2)).get("debug_address"), "");
+        assert.match(elements.status.textContent, /restarting/);
+        assert.equal(elements.summit.disabled, true);
+    }
+}
+
+async function exerciseConfiguredPage(path) {
+    const html = fs.readFileSync(path, "utf8");
+    const script = html.match(/<script>([\s\S]*?)<\/script>/);
+    const elements = {};
+    for (const id of ["ssid", "password", "name", "networks", "scan_status", "status", "refresh", "summit", "debug_config", "debug_address"]) {
+        elements[id] = element();
+    }
+    elements.refresh.dataset.scanAvailable = "false";
+    let requests = 0;
+    vm.runInNewContext(script[1], {
+        Blob,
+        document: {getElementById: id => elements[id]},
+        fetch: async () => { requests++; return response(200); },
+        encodeURIComponent,
+    });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 0);
+    assert.equal(elements.refresh.disabled, true);
+    assert.match(elements.scan_status.textContent, /only available during setup/);
 }
 
 async function exercisePrinter(path) {
@@ -199,6 +243,10 @@ async function exercisePrinter(path) {
 (async () => {
     await exercise("frontend/server-config.index.html");
     await exercise("lib/webserver/views/server-config.index.h");
+    await exercise("frontend/server-config.index.html", true);
+    await exercise("lib/webserver/views/server-config.index.h", true);
+    await exerciseConfiguredPage("frontend/server-config.index.html");
+    await exerciseConfiguredPage("lib/webserver/views/server-config.index.h");
     await exercisePrinter("frontend/status.index.html");
     await exercisePrinter("lib/webserver/views/status.index.h");
     const setup = fs.readFileSync("lib/webserver/views/server-config.index.h", "utf8");

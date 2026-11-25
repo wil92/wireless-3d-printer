@@ -535,6 +535,113 @@ void testConfiguredPageShowsPrinterControls() {
     TEST_ASSERT_TRUE(client.response.find("Upload to printer") != std::string::npos);
 }
 
+void testDebugReceiverConfiguration() {
+    FlashManager flash;
+    WebServerManager manager;
+    manager.flashManager = &flash;
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    String saved = "logs.local:9000";
+    bool fail = false;
+    manager.debugReceiver = [&]() { return saved; };
+    manager.saveDebugReceiver = [&](const String &value) {
+        if (fail) return false;
+        saved = value;
+        return true;
+    };
+#endif
+    WiFiClientTmp setupPage;
+    setupPage.buildHeaders();
+    manager.checkEndpoints(&setupPage, "GET / HTTP/1.1\r");
+    flash.isSetup = true;
+    WiFiClientTmp statusPage;
+    statusPage.buildHeaders();
+    manager.checkEndpoints(&statusPage, "GET / HTTP/1.1\r");
+    WiFiClientTmp configPage;
+    configPage.buildHeaders();
+    manager.checkEndpoints(&configPage, "GET /config HTTP/1.1\r");
+
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    TEST_ASSERT_TRUE(setupPage.response.find("id=debug_address") != std::string::npos);
+    TEST_ASSERT_TRUE(setupPage.response.find("data-debug-enabled=\"true\" hidden id=debug_config") != std::string::npos);
+    TEST_ASSERT_TRUE(setupPage.response.find("value=\"logs.local:9000\"") != std::string::npos);
+    TEST_ASSERT_TRUE(statusPage.response.find("href=\"/config\"") != std::string::npos);
+    TEST_ASSERT_TRUE(configPage.response.find("id=debug_address") != std::string::npos);
+    TEST_ASSERT_TRUE(configPage.response.find("data-debug-enabled=\"true\" hidden id=debug_config") != std::string::npos);
+    TEST_ASSERT_TRUE(configPage.response.find("data-scan-available=\"false\"") != std::string::npos);
+    saved = "\"<&' $$NAME$$ $$DEBUG_LINK$$";
+    WiFiClientTmp escaped;
+    escaped.buildHeaders();
+    manager.checkEndpoints(&escaped, "GET /config HTTP/1.1\r");
+    TEST_ASSERT_TRUE(escaped.response.find("&quot;&lt;&amp;&#39; $$NAME$$ $$DEBUG_LINK$$") != std::string::npos);
+    saved = "logs.local:9000";
+    for (const char *query : {"debug_address=bad%3A0", "debug_address=good%00bad",
+                              "debug_address=http%3A%2F%2Fhost"}) {
+        WiFiClientTmp invalid;
+        invalid.buildHeaders();
+        const String request = String("POST /?ssid=net&name=Printer&") + query + " HTTP/1.1\r";
+        TEST_ASSERT_FALSE(manager.checkEndpoints(&invalid, request));
+        TEST_ASSERT_TRUE(invalid.response.find("400 Bad Request") != std::string::npos);
+        TEST_ASSERT_EQUAL_STRING("logs.local:9000", saved.c_str());
+        TEST_ASSERT_EQUAL_UINT8(0xff, eepromData[CONFIG_STATUS_ADDRESS]);
+    }
+    fail = true;
+    WiFiClientTmp failed;
+    failed.buildHeaders();
+    TEST_ASSERT_FALSE(manager.checkEndpoints(&failed, "POST /?ssid=net&name=Printer&debug_address=other.local HTTP/1.1\r"));
+    TEST_ASSERT_TRUE(failed.response.find("500 Internal Server Error") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("logs.local:9000", saved.c_str());
+    TEST_ASSERT_EQUAL_UINT8(0xff, eepromData[CONFIG_STATUS_ADDRESS]);
+    TEST_ASSERT_EQUAL_STRING(NETWORK_SSID, flash.ssidNetwork.c_str());
+    TEST_ASSERT_EQUAL_STRING(DEFAULT_DEVICE_NAME, flash.deviceName.c_str());
+    SetupConnectionClient rejected;
+    rejected.setRequest("POST /?ssid=net&name=Printer&debug_address=bad%3A0 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    int failedRestarts = 0;
+    manager.rf = [&]() { ++failedRestarts; };
+    manager.handleClient(rejected);
+    TEST_ASSERT_EQUAL(0, failedRestarts);
+    TEST_ASSERT_TRUE(rejected.response.find("400 Bad Request") != std::string::npos);
+    fail = false;
+    for (const bool configured : {false, true}) {
+        flash.isSetup = configured;
+        SetupConnectionClient client;
+        client.setRequest("POST /?ssid=net&password=secret&name=Printer&debug_address=host.local%3A1234 HTTP/1.1\r\nHost: localhost\r\n\r\n");
+        int restarts = 0;
+        manager.rf = [&]() { ++restarts; TEST_ASSERT_TRUE(client.stopped); };
+        manager.handleClient(client);
+        TEST_ASSERT_EQUAL(1, restarts);
+        TEST_ASSERT_TRUE(client.response.find("204 No Content") != std::string::npos);
+        TEST_ASSERT_EQUAL_STRING("host.local:1234", saved.c_str());
+        TEST_ASSERT_EQUAL_STRING("net", flash.ssidNetwork.c_str());
+        TEST_ASSERT_EQUAL_STRING("Printer", flash.deviceName.c_str());
+    }
+    WiFiClientTmp clear;
+    clear.buildHeaders();
+    TEST_ASSERT_TRUE(manager.checkEndpoints(&clear, "POST /?ssid=net&name=Printer&debug_address= HTTP/1.1\r"));
+    TEST_ASSERT_EQUAL_STRING("", saved.c_str());
+    saved = "keep.local";
+    WiFiClientTmp omitted;
+    omitted.buildHeaders();
+    TEST_ASSERT_TRUE(manager.checkEndpoints(&omitted, "POST /?ssid=net&name=Printer HTTP/1.1\r"));
+    TEST_ASSERT_EQUAL_STRING("keep.local", saved.c_str());
+    WiFiClientTmp invalidNetwork;
+    invalidNetwork.buildHeaders();
+    TEST_ASSERT_FALSE(manager.checkEndpoints(&invalidNetwork, "POST /?ssid=&debug_address=other.local HTTP/1.1\r"));
+    TEST_ASSERT_TRUE(invalidNetwork.response.find("400 Bad Request") != std::string::npos);
+    TEST_ASSERT_EQUAL_STRING("keep.local", saved.c_str());
+#else
+    TEST_ASSERT_TRUE(setupPage.response.find("id=debug_address") != std::string::npos);
+    TEST_ASSERT_TRUE(setupPage.response.find("data-debug-enabled=\"false\" hidden id=debug_config") != std::string::npos);
+    TEST_ASSERT_TRUE(setupPage.response.find("$$DEBUG_ADDRESS$$") == std::string::npos);
+    TEST_ASSERT_TRUE(statusPage.response.find("href=\"/config\"") == std::string::npos);
+    TEST_ASSERT_TRUE(configPage.response.find("id=debug_address") == std::string::npos);
+    WiFiClientTmp ignored;
+    ignored.buildHeaders();
+    TEST_ASSERT_FALSE(manager.checkEndpoints(&ignored, "POST /?ssid=net&name=Printer&debug_address=logs.local HTTP/1.1\r"));
+    TEST_ASSERT_TRUE(ignored.response.find("400 Bad Request") != std::string::npos);
+    TEST_ASSERT_EQUAL_UINT8(0xff, eepromData[CONFIG_STATUS_ADDRESS]);
+#endif
+}
+
 void testSetupSavesNameAndEndpointReturnsIt() {
     FlashManager flash;
     WebServerManager manager;
@@ -916,6 +1023,7 @@ int runUnitTests() {
     RUN_TEST(testUploadRejectsDuplicateContentLengthBeforePrinterAccess);
     RUN_TEST(testFileOperationsAreUnavailable);
     RUN_TEST(testConfiguredPageShowsPrinterControls);
+    RUN_TEST(testDebugReceiverConfiguration);
     RUN_TEST(testSetupSavesNameAndEndpointReturnsIt);
     RUN_TEST(testSetupDoesNotLogRequestHeaders);
     RUN_TEST(testSetupRestartsAfterResponseEvenWithMoreClientData);

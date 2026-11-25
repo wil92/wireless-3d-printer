@@ -8,6 +8,8 @@ class RuntimeDebugConfig {
 public:
     String begin();
     void poll();
+    String receiver();
+    bool saveReceiver(const String &address);
 
 private:
     Preferences preferences;

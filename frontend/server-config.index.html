@@ -4,7 +4,11 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>wireless-3d-printer configuration</title>
-    <style>$$STYLES$$</style>
+    <style>$
+    $
+    STYLES$
+
+    $</style>
 </head>
 <body>
 <main>
@@ -14,14 +18,22 @@
     <label for="ssid">Wi-Fi network</label>
     <div class="network">
         <input id="ssid" type="text" value="$$SSID$$" list="networks" autocomplete="off" required>
-        <button id="refresh" type="button">Refresh</button>
+        <button id="refresh" type="button" data-scan-available="$$SCAN_AVAILABLE$$">Refresh</button>
     </div>
     <datalist id="networks"></datalist>
     <p id="scan_status" class="status" role="status" aria-live="polite"></p>
     <label for="password">Password</label>
     <input id="password" type="password" value="$$PASSWORD$$" autocomplete="new-password">
     <small>Leave empty for an open network.</small>
-    <div><button id="summit" class="action" type="button">Configure device</button></div>
+    <section id="debug_config" data-debug-enabled="$$DEBUG_ENABLED$$" hidden>
+        <h2>Network debug logging</h2>
+        <label for="debug_address">Log receiver HOST[:PORT]</label>
+        <input id="debug_address" type="text" maxlength="128" value="$$DEBUG_ADDRESS$$">
+        <small>Leave empty to disable network logging.</small>
+    </section>
+    <div>
+        <button id="summit" class="action" type="button">Configure device</button>
+    </div>
     <p id="status" class="status" role="status" aria-live="polite"></p>
 </main>
 <script>
@@ -33,6 +45,10 @@
     const statusMessage = document.getElementById("status");
     const refreshButton = document.getElementById("refresh");
     const saveButton = document.getElementById("summit");
+    const debugConfig = document.getElementById("debug_config");
+    const debugEnabled = debugConfig.dataset.debugEnabled === "true";
+    debugConfig.hidden = !debugEnabled;
+    const scanAvailable = refreshButton.dataset.scanAvailable !== "false";
     let configured = false;
 
     function showMessage(element, message, error = false) {
@@ -92,6 +108,8 @@
             password: passwordInput.value,
             name: deviceNameInput.value,
         };
+        const debugInput = document.getElementById("debug_address");
+        if (debugEnabled) values.debug_address = debugInput.value;
         const query = Object.keys(values).map(key =>
             `${encodeURIComponent(key)}=${encodeURIComponent(values[key])}`).join("&");
         try {
@@ -106,7 +124,12 @@
         }
     };
 
-    scanNetworks();
+    if (scanAvailable) {
+        scanNetworks();
+    } else {
+        refreshButton.disabled = true;
+        showMessage(scanStatus, "Wi-Fi scanning is only available during setup. Enter an SSID manually.");
+    }
 </script>
 </body>
 </html>

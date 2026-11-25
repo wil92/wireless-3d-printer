@@ -45,7 +45,9 @@ saved with the credentials and returned by the discovery API. The name must
 be 1-64 UTF-8 bytes and cannot contain ASCII control characters. Existing
 configurations without a saved name continue to connect and use `wireless-3d-printer`.
 Previously saved names are retained; reset and configure the device again to
-select a different name. The new
+select a different name in regular firmware. Debug firmware also exposes the
+configuration page on the LAN as described in
+[network debug logging](network-logging.md). The new
 flash format is not recognized by older firmware versions.
 
 The former `NETWORK_SSID` and `NETWORK_PASSWORD` environment variables are no
@@ -105,6 +107,10 @@ from the project root with `pio test -e tests`. Run the configuration-header tes
 do not upload firmware.
 Run `python3 -m unittest discover -s test -p 'test_debug_build_flags.py'` for
 debug-address build configuration tests.
+Run `pio test -e tests-debug -f 'host/test_web_server'` for debug-only
+configuration endpoint coverage, and
+`python3 -m unittest discover -s test -p 'test_debug_runtime.py'` for debug
+receiver persistence and UART coverage.
 Run `python3 scripts/build_views.py --check` and `node test/host/frontend_test.js`
 to check generated pages and frontend interactions.
 If the pioarduino-managed Python environment cannot import `minify_html`,

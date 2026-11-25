@@ -34,8 +34,8 @@ for filename in os.listdir(frontend_directory):
             # Substituted values may contain spaces and other unquoted-attribute
             # delimiters, even though the placeholders themselves do not.
             content = re.sub(
-                r'value=(\$\$(?:SSID|PASSWORD|NAME)\$\$)(?=[\s>])',
-                r'value="\1"', content)
+                r'(value|data-scan-available|data-debug-enabled)=(\$\$(?:SSID|PASSWORD|NAME|SCAN_AVAILABLE|DEBUG_ENABLED|DEBUG_ADDRESS)\$\$)(?=[\s>])',
+                r'\1="\2"', content)
             file_definition = '_'.join(re.split(r'[-.]', filename)).upper() + '_H'
             var_name = '_'.join(re.split(r'[-.]', filename)).lower()
 

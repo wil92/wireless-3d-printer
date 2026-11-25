@@ -10,7 +10,7 @@ String RuntimeDebugConfig::begin() {
         return "";
     }
     Serial.println("Debug receiver: use 'debug-address HOST[:PORT]' or 'debug-address off', then restart");
-    const String saved = preferences.getString("receiver", "");
+    const String saved = receiver();
     if (saved.length() == 0) return "";
     std::string url;
     if (!debugAddressUrl(saved.c_str(), url)) {
@@ -20,34 +20,48 @@ String RuntimeDebugConfig::begin() {
     return String(url.c_str());
 }
 
+String RuntimeDebugConfig::receiver() {
+    if (!available) return "";
+    return preferences.getString("receiver", "");
+}
+
+bool RuntimeDebugConfig::saveReceiver(const String &address) {
+    if (!available) {
+        Serial.println("Cannot save debug receiver: storage unavailable");
+        return false;
+    }
+    if (address.length() == 0) {
+        if (preferences.isKey("receiver") && !preferences.remove("receiver")) {
+            Serial.println("Failed to clear debug receiver");
+            return false;
+        }
+    } else {
+        std::string url;
+        if (!debugAddressUrl(address.c_str(), url)) {
+            Serial.println("Invalid debug receiver; expected HOST[:PORT]");
+            return false;
+        }
+        if (preferences.putString("receiver", address) != address.length()) {
+            Serial.println("Failed to save debug receiver");
+            return false;
+        }
+    }
+    Serial.println("Debug receiver saved; restart to apply");
+    return true;
+}
+
 void RuntimeDebugConfig::handleLine(const String &line) {
     const String prefix = "debug-address ";
     if (!line.startsWith(prefix)) {
         Serial.println("Unknown command; use debug-address HOST[:PORT] or debug-address off");
         return;
     }
-    if (!available) {
-        Serial.println("Cannot save debug receiver: storage unavailable");
-        return;
-    }
     const String address = line.substring(prefix.length());
     if (address == "off") {
-        if (preferences.isKey("receiver") && !preferences.remove("receiver")) {
-            Serial.println("Failed to clear debug receiver");
-            return;
-        }
+        saveReceiver("");
     } else {
-        std::string url;
-        if (!debugAddressUrl(address.c_str(), url)) {
-            Serial.println("Invalid debug receiver; expected HOST[:PORT]");
-            return;
-        }
-        if (preferences.putString("receiver", address) != address.length()) {
-            Serial.println("Failed to save debug receiver");
-            return;
-        }
+        saveReceiver(address);
     }
-    Serial.println("Debug receiver saved; restart to apply");
 }
 
 void RuntimeDebugConfig::poll() {

@@ -7,6 +7,7 @@
 #include "../scan_status.h"
 #include "../text_utils.h"
 #include "../debug_log/debug_log.h"
+#include "../debug_log/debug_address.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -721,8 +722,17 @@ void WebServerManager::handleVersion(WiFiClient *client) const {
 void WebServerManager::handleWebsite(WiFiClient *client,
                                      const String &message) {
     client->print(prepareHeaders(200));
-    client->print(flashManager->isSetup ? String(status_index_html)
-                                        : prepareIndexHtmlPage());
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    const bool showConfig = !flashManager->isSetup || message.startsWith("GET /config HTTP/");
+    String page = showConfig ? prepareIndexHtmlPage() : String(status_index_html);
+    if (!showConfig)
+        page.replace("$$DEBUG_LINK$$", "<p><a href=\"/config\">Device and debug configuration</a></p>");
+    client->print(page);
+#else
+    String page = flashManager->isSetup ? String(status_index_html) : prepareIndexHtmlPage();
+    if (flashManager->isSetup) page.replace("$$DEBUG_LINK$$", "");
+    client->print(page);
+#endif
     client->print("\r\n");
     consumeIncomingData(client);
 }
@@ -737,6 +747,22 @@ bool WebServerManager::handleUpdateConfig(WiFiClient *client,
         return false;
     }
     std::map<String, String> params = parseQueryParameters(message, index);
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    const auto debugAddress = params.find("debug_address");
+    std::string url;
+    if (debugAddress != params.end() && debugAddress->second.length() &&
+        !debugAddressUrl(debugAddress->second.c_str(), url)) {
+        consumeIncomingData(client);
+        sendTextResponse(client, 400, "Invalid debug receiver; expected HOST[:PORT].");
+        return false;
+    }
+#else
+    if (params.find("debug_address") != params.end()) {
+        consumeIncomingData(client);
+        sendTextResponse(client, 400, "Debug receiver configuration is unavailable.");
+        return false;
+    }
+#endif
     const String previousSsid = flashManager->ssidNetwork;
     const String previousPassword = flashManager->passwordNetwork;
     const String previousName = flashManager->deviceName;
@@ -749,7 +775,41 @@ bool WebServerManager::handleUpdateConfig(WiFiClient *client,
                        flashManager->ssidNetwork.length() > 0 &&
                        flashManager->ssidNetwork.length() <= 32 &&
                        isValidUtf8(flashManager->ssidNetwork, false);
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    bool debugSaved = false;
+    String previousDebug;
+    if (valid && debugAddress != params.end()) {
+        if (!debugReceiver || !saveDebugReceiver) {
+            flashManager->ssidNetwork = previousSsid;
+            flashManager->passwordNetwork = previousPassword;
+            flashManager->deviceName = previousName;
+            DebugLog.println("Debug configuration storage unavailable");
+            sendTextResponse(client, 500, "Could not save debug receiver.");
+            return false;
+        }
+        previousDebug = debugReceiver();
+        if (!saveDebugReceiver(debugAddress->second)) {
+            flashManager->ssidNetwork = previousSsid;
+            flashManager->passwordNetwork = previousPassword;
+            flashManager->deviceName = previousName;
+            DebugLog.println("Failed to save debug receiver");
+            sendTextResponse(client, 500, "Could not save debug receiver.");
+            return false;
+        }
+        debugSaved = true;
+    }
+#endif
     if (!valid || !flashManager->saveSetup()) {
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+        if (debugSaved && !saveDebugReceiver(previousDebug)) {
+            DebugLog.println("Failed to restore debug receiver after configuration save failure");
+            flashManager->ssidNetwork = previousSsid;
+            flashManager->passwordNetwork = previousPassword;
+            flashManager->deviceName = previousName;
+            sendTextResponse(client, 500, "Could not save configuration or restore debug receiver.");
+            return false;
+        }
+#endif
         flashManager->ssidNetwork = previousSsid;
         flashManager->passwordNetwork = previousPassword;
         flashManager->deviceName = previousName;
@@ -877,6 +937,21 @@ String WebServerManager::prepareIndexHtmlPage() const {
         } else if (page.startsWith("$$NAME$$", i)) {
             result += escapeHtmlAttribute(flashManager->deviceName);
             i += 8;
+        } else if (page.startsWith("$$SCAN_AVAILABLE$$", i)) {
+            result += flashManager->isSetup ? "false" : "true";
+            i += 18;
+        } else if (page.startsWith("$$DEBUG_ENABLED$$", i)) {
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+            result += "true";
+#else
+            result += "false";
+#endif
+            i += 17;
+        } else if (page.startsWith("$$DEBUG_ADDRESS$$", i)) {
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+            if (debugReceiver) result += escapeHtmlAttribute(debugReceiver());
+#endif
+            i += 17;
         } else {
             result += page[i++];
         }

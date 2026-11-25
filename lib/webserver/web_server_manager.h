@@ -89,6 +89,10 @@ public:
     std::function<bool()> startScan;
     std::function<int()> scanComplete;
     std::function<String(int)> scanSsid;
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    std::function<String()> debugReceiver;
+    std::function<bool(const String &)> saveDebugReceiver;
+#endif
     std::unique_ptr<WiFiServer> server;
     ResetFunction rf;
     String deviceId;

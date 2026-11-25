@@ -23,6 +23,12 @@ int main() {
 
     RuntimeDebugConfig afterRestart;
     assert(afterRestart.begin() == "http://logs.local:9000/");
+    assert(afterRestart.receiver() == "logs.local:9000");
+    assert(!afterRestart.saveReceiver("bad:0"));
+    assert(savedReceiver == "logs.local:9000");
+    assert(afterRestart.saveReceiver("other.local"));
+    assert(savedReceiver == "other.local");
+    assert(afterRestart.saveReceiver("logs.local:9000"));
     command(afterRestart, "debug-address bad:0\n");
     assert(savedReceiver == "logs.local:9000");
     assert(Serial.output.find("Invalid debug receiver") != std::string::npos);
@@ -33,15 +39,21 @@ int main() {
     assert(savedReceiver == "logs.local:9000");
 
     failWrite = true;
+    assert(!afterRestart.saveReceiver("other.local"));
     command(afterRestart, "debug-address other.local\n");
     assert(savedReceiver == "logs.local:9000");
     assert(Serial.output.find("Failed to save") != std::string::npos);
     failWrite = false;
     failRemove = true;
+    assert(!afterRestart.saveReceiver(""));
     command(afterRestart, "debug-address off\n");
     assert(savedReceiver == "logs.local:9000");
     assert(Serial.output.find("Failed to clear") != std::string::npos);
     failRemove = false;
+    assert(afterRestart.saveReceiver(""));
+    assert(savedReceiver.empty());
+    assert(afterRestart.saveReceiver(""));
+    assert(afterRestart.saveReceiver("logs.local:9000"));
     command(afterRestart, "debug-address off\n");
     assert(savedReceiver.empty());
     RuntimeDebugConfig disabled;
@@ -54,6 +66,7 @@ int main() {
     storageAvailable = false;
     RuntimeDebugConfig unavailable;
     assert(unavailable.begin() == "");
+    assert(!unavailable.saveReceiver("good.local"));
     command(unavailable, "debug-address good.local\n");
     assert(savedReceiver == "bad:0");
     assert(Serial.output.find("storage unavailable") != std::string::npos);

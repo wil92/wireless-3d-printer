@@ -87,8 +87,8 @@ The release contains factory images
 bootloader, partition table, and application and are written at flash offset
 `0x0` on the supported 4 MB ESP32-S3 board. Verify the board and use a
 compatible ESP32-S3 flashing tool and UART connection; flashing can overwrite
-existing firmware and settings. The debug image's receiver is configured over
-UART as described in [network logging](network-logging.md).
+existing firmware and settings. The debug image's receiver is configured on
+the setup page or over UART as described in [network logging](network-logging.md).
 
 The published Cura ZIP is built on Linux x86_64 using Python 3.11 and can
 contain native modules. Use it only with a compatible Cura Python runtime on

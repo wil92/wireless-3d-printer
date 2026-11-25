@@ -67,6 +67,12 @@ void setup() {
     resetConfigWhenButtonPress();
 
     webServer.checkResetButton = resetConfigWhenButtonPress;
+#ifdef NETWORK_DEBUG_RUNTIME_CONFIG
+    webServer.debugReceiver = []() { return debugConfig.receiver(); };
+    webServer.saveDebugReceiver = [](const String &address) {
+        return debugConfig.saveReceiver(address);
+    };
+#endif
 
     if (flashManager.isSetup) {
         if (!networkManager.connectToNetwork(flashManager.ssidNetwork.c_str(),
